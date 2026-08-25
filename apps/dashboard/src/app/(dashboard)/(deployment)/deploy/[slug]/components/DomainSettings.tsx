@@ -138,7 +138,7 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
       const base =
         endpoints[0] ??
         createPublicEndpoint({
-          domainType: next,
+          domainType: next === "cloudflare" ? "custom" : next,
           domain: next === "free" ? normalizeSubdomain(projectName) : "",
         });
       void handleChange([

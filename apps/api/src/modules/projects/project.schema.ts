@@ -114,7 +114,7 @@ const PublicEndpointSchema = Type.Object({
   ),
   customDomain: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
   domainType: Type.Optional(Type.Union([Type.Literal("free"), Type.Literal("custom")])),
-  externalIngress: Type.Optional(Type.Boolean()),,
+  externalIngress: Type.Optional(Type.Boolean()),
   /**
    * Canonical redirect: this hostname answers a 30x to another hostname of the
    * SAME project instead of serving. The target and the whole set are checked by
@@ -154,7 +154,7 @@ const MonorepoAppSchema = Type.Object({
   ),
   customDomain: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
   domainType: Type.Optional(Type.Union([Type.Literal("free"), Type.Literal("custom")])),
-  externalIngress: Type.Optional(Type.Boolean()),,
+  externalIngress: Type.Optional(Type.Boolean()),
   environment: Type.Optional(Type.Record(Type.String(), Type.String())),
 });
 
@@ -192,7 +192,7 @@ const ComposeServiceSchema = Type.Object({
   domain: Type.Optional(Type.String({ maxLength: 63 })),
   customDomain: Type.Optional(Type.String({ maxLength: 255 })),
   domainType: Type.Optional(Type.Union([Type.Literal("free"), Type.Literal("custom")])),
-  externalIngress: Type.Optional(Type.Boolean()),,
+  externalIngress: Type.Optional(Type.Boolean()),
   publicEndpoints: Type.Optional(Type.Array(PublicEndpointSchema, { maxItems: 20 })),
 });
 
