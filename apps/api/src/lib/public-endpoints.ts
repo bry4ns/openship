@@ -43,6 +43,9 @@ export interface StoredPublicEndpoint {
   domain?: string;
   customDomain?: string;
   domainType: "free" | "custom";
+  /** Cloudflare-Tunnel ingress: TLS upstream, plain-HTTP vhost on the box.
+   *  Preserved through normalization so the wizard's mode survives reloads. */
+  externalIngress?: boolean;
   /** Canonical redirect to another hostname of the same project instead of
    *  serving the app — see lib/domain-redirect.ts. Absent = serves the app. */
   redirectTo?: string;
@@ -58,6 +61,7 @@ type StoredPublicEndpointInput = {
   domainType?: "free" | "custom" | null;
   redirectTo?: string | null;
   redirectStatus?: number | string | null;
+  externalIngress?: boolean | null;
 };
 
 export type ProjectDomainRow = Pick<
@@ -292,6 +296,7 @@ function normalizeStoredPublicEndpoint(
     domain,
     customDomain,
     domainType,
+    ...(endpoint.externalIngress === true ? { externalIngress: true } : {}),
     ...normalizeRedirectFields(endpoint.redirectTo, endpoint.redirectStatus),
   } satisfies StoredPublicEndpoint;
 }

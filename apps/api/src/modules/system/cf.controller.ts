@@ -15,6 +15,7 @@ import { db, repos, schema } from "@repo/db";
 import { getRequestContext } from "../../lib/request-context";
 import { assertNotCloud } from "../../lib/controller-helpers";
 import { encrypt, decrypt } from "../../lib/encryption";
+import { decryptSecretField } from "../../lib/credential-encryption";
 import {
   verifyApiToken,
   listAccounts,
@@ -52,6 +53,47 @@ async function getAccount(orgId: string): Promise<CfAccountRow | null> {
     .where(eq(schema.cfAccounts.organizationId, orgId))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Recycle path: an org that already stored a Cloudflare token under
+ * Credentials (dns_credential, used by DNS-01/wildcard provisioning) gets its
+ * tunnels integration for free — derive account + zones from that token and
+ * seed our row once, instead of asking for a second paste.
+ */
+async function getOrRecycleAccount(orgId: string): Promise<CfAccountRow | null> {
+  const existing = await getAccount(orgId);
+  if (existing) return existing;
+
+  const creds = await repos.dnsCredential.listByOrg(orgId);
+  const dnsCred = creds.find(
+    (c) => c.provider === "cloudflare" && c.status === "active",
+  );
+  if (!dnsCred) return null;
+
+  const apiToken = decryptSecretField(dnsCred.apiTokenEnc);
+  if (!apiToken) return null;
+  try {
+    await verifyApiToken(apiToken);
+    const zoned = await listZonesWithAccount(apiToken).catch(() => []);
+    if (zoned.length === 0) return null;
+
+    const inserted = await db
+      .insert(schema.cfAccounts)
+      .values({
+        id: crypto.randomUUID(),
+        organizationId: orgId,
+        cfAccountId: zoned[0]!.accountId,
+        label: `${dnsCred.name} (from Credentials)`,
+        apiTokenCiphertext: encrypt(apiToken),
+        zonesCache: zoned.map(({ zoneId, name }) => ({ zoneId, name })),
+      })
+      .onConflictDoNothing()
+      .returning();
+    return inserted[0] ?? getAccount(orgId);
+  } catch {
+    return null; // recycled token rejected — operator connects explicitly
+  }
 }
 
 function decryptedZones(row: CfAccountRow): CfZone[] {
@@ -105,7 +147,7 @@ export async function getIntegration(c: Context) {
   if (cloudGuard) return cloudGuard;
   const ctx = getRequestContext(c);
 
-  const account = await getAccount(ctx.organizationId);
+  const account = await getOrRecycleAccount(ctx.organizationId);
   if (!account) return c.json({ connected: false });
 
   const tunnels = await db
@@ -269,7 +311,9 @@ export async function ensureTunnel(c: Context) {
     if (!server) return fail(c, "Server not found", 404);
   }
 
-  const account = await getAccount(ctx.organizationId);
+  const account =
+    (await getAccount(ctx.organizationId)) ??
+    (await getOrRecycleAccount(ctx.organizationId));
   if (!account) return fail(c, "Connect a Cloudflare account first", 409);
   const apiToken = decrypt(account.apiTokenCiphertext);
 
