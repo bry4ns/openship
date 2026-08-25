@@ -517,6 +517,7 @@ const Sidebar: React.FC = () => {
           endpoints={config.publicEndpoints}
           hasServer={config.options.hasServer}
           runtimePort={config.options.productionPort}
+          serverId={config.deployTarget === "server" ? config.serverId : null}
           setEndpoints={(publicEndpoints, nextRuntimePort) => updateConfig({
             publicEndpoints,
             ...(nextRuntimePort !== undefined

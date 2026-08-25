@@ -34,6 +34,8 @@ interface DesiredProjectRoute {
   isPrimary: boolean;
   redirectTo: string | null;
   redirectStatus: number | null;
+  /** Cloudflare-Tunnel style ingress: TLS upstream, plain-HTTP vhost here. */
+  externalIngress: boolean;
 }
 
 /**
@@ -103,6 +105,7 @@ function desiredProjectRoutes(endpoints?: StoredPublicEndpoint[] | null): Desire
       isPrimary: index === 0,
       redirectTo: redirect.redirectTo,
       redirectStatus: redirect.redirectStatus,
+      externalIngress: endpoint.externalIngress === true,
     } satisfies DesiredProjectRoute];
   });
 }
@@ -147,13 +150,15 @@ export async function syncProjectPublicRoutes(
     // decides verification for endpoint-created rows — the old behavior
     // silently marked custom domains verified with no DNS check.
     const verificationFields =
-      route.domainType === "custom"
+      route.domainType === "custom" && !route.externalIngress
         ? {
             status: "pending" as const,
             verified: false,
             verificationToken: generateToken(route.hostname),
           }
-        : { status: "active" as const, verified: true, verifiedAt: new Date() };
+        : // Free subdomains are host-managed, and externalIngress rows prove
+          // ownership by construction (we wrote the DNS record ourselves).
+          { status: "active" as const, verified: true, verifiedAt: new Date() };
 
     if (!existing) {
       const globalExisting = await repos.domain.findByHostname(route.hostname);
@@ -191,6 +196,7 @@ export async function syncProjectPublicRoutes(
           isPrimary: route.isPrimary,
           redirectTo: route.redirectTo,
           redirectStatus: route.redirectStatus,
+          externalIngress: route.externalIngress,
           ...verificationFields,
         });
       } catch (err: any) {
@@ -213,6 +219,7 @@ export async function syncProjectPublicRoutes(
                 targetPath: route.targetPath,
                 domainType: route.domainType,
                 isPrimary: route.isPrimary,
+                externalIngress: route.externalIngress,
                 ...verificationFields,
               });
             }

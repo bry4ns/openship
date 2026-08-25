@@ -180,6 +180,8 @@ export interface PublicEndpoint {
   domain: string;
   customDomain: string;
   domainType: "free" | "custom";
+  /** Cloudflare-Tunnel ingress: TLS upstream, plain-HTTP vhost on the box. */
+  externalIngress?: boolean;
   /** Canonical redirect: answer a 30x to this hostname (another of the project's
    *  own) instead of serving the app here. Undefined = serves the app. */
   redirectTo?: string;

@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { isValidCustomHostname } from "@repo/core";
-import { getApiErrorMessage, projectsApi } from "@/lib/api";
+import { api, getApiErrorMessage, projectsApi } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import { usePlatform } from "@/context/PlatformContext";
 import { useI18n } from "@/components/i18n-provider";
@@ -17,6 +17,9 @@ interface DomainSettingsProps {
   endpoints: PublicEndpoint[];
   hasServer: boolean;
   runtimePort: string;
+  /** Deploy-target node for Cloudflare Tunnel connectors (null/undefined = the
+   *  OpenShip box itself). */
+  serverId?: string | null;
   setEndpoints: (endpoints: PublicEndpoint[], runtimePort?: string) => void;
   /** "None" routing — deploy with no public URL. */
   noPublicRoute: boolean;
@@ -32,6 +35,7 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
   endpoints,
   hasServer,
   runtimePort,
+  serverId,
   setEndpoints,
   noPublicRoute,
   setNoPublicRoute,
@@ -89,9 +93,11 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
 
   const mode: RoutingMode = noPublicRoute
     ? "none"
-    : endpoints[0]?.domainType === "custom"
-      ? "custom"
-      : "free";
+    : endpoints[0]?.domainType === "custom" && endpoints[0]?.externalIngress === true
+      ? "cloudflare"
+      : endpoints[0]?.domainType === "custom"
+        ? "custom"
+        : "free";
 
   const handleModeChange = useCallback(
     (next: RoutingMode) => {
@@ -135,10 +141,56 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
           domainType: next,
           domain: next === "free" ? normalizeSubdomain(projectName) : "",
         });
-      void handleChange([{ ...base, domainType: next }, ...endpoints.slice(1)]);
+      void handleChange([
+        {
+          ...base,
+          domainType: next === "cloudflare" ? "custom" : next,
+          ...(next === "cloudflare" ? { externalIngress: true } : {}),
+        },
+        ...endpoints.slice(1),
+      ]);
     },
     [endpoints, handleChange, projectId, projectName, setEndpoints, setNoPublicRoute, showToast, t],
   );
+
+  // Cloudflare mode: once the composed hostname is valid, provision the node's
+  // connector and attach the route (DNS record + remote-managed ingress +
+  // externalIngress vhost). Guarded by the last-attached host so keystroke
+  // autosaves don't spam the Cloudflare API, and idempotent on re-visits.
+  const lastCfHostRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (mode !== "cloudflare" || !projectId || noPublicRoute) return;
+    const ep = endpoints[0];
+    const host = ep?.domainType === "custom" ? (ep.customDomain ?? "").trim().toLowerCase() : "";
+    if (!isValidCustomHostname(host)) return;
+    if (lastCfHostRef.current === host) return;
+    lastCfHostRef.current = host;
+
+    const payload = serverId ? { serverId } : {};
+    (async () => {
+      try {
+        await api.post("system/cf-tunnels/ensure", payload);
+        const ensured = await api.post<{ tunnel: { id: string } }>(
+          "system/cf-tunnels/ensure",
+          payload,
+        );
+        const port = Number(ep?.port ?? runtimePort);
+        await api.post(`system/cf-tunnels/${ensured.tunnel.id}/routes`, {
+          hostname: host,
+          targetPort: Number.isFinite(port) && port > 0 ? port : undefined,
+          mode: "edge",
+          projectId,
+        });
+        showToast(`☁ ${host} published via Cloudflare Tunnel`, "success", t.deploy.domainSettings.toastTitle);
+      } catch (err) {
+        showToast(
+          getApiErrorMessage(err, "Cloudflare Tunnel publish failed"),
+          "error",
+          t.deploy.domainSettings.toastTitle,
+        );
+      }
+    })();
+  }, [mode, endpoints, projectId, serverId, runtimePort, noPublicRoute, showToast, t]);
 
   return (
     <RoutingModePicker

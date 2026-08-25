@@ -83,6 +83,9 @@ export interface ValidatedPublicEndpointPayload {
   domain?: string;
   customDomain?: string;
   domainType: "free" | "custom";
+  /** Only present (true) when the endpoint rides a Cloudflare Tunnel — an
+   *  omitted key leaves whatever the domain row already had. */
+  externalIngress?: boolean;
   redirectTo?: string;
   redirectStatus?: number;
 }
@@ -111,13 +114,20 @@ export function validatedPublicEndpointPayload(
   if (hasServer) {
     const port = Number(endpoint.port.trim());
     if (!Number.isFinite(port) || port < 1 || port > 65535) return null;
-    return { port, domainType, ...host, ...redirectPayloadFields(endpoint) };
+    return {
+      port,
+      domainType,
+      ...host,
+      ...(endpoint.externalIngress === true ? { externalIngress: true } : {}),
+      ...redirectPayloadFields(endpoint),
+    };
   }
 
   return {
     targetPath: endpoint.targetPath.trim() || "/",
     domainType,
     ...host,
+    ...(endpoint.externalIngress === true ? { externalIngress: true } : {}),
     ...redirectPayloadFields(endpoint),
   };
 }
