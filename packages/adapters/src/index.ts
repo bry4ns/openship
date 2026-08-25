@@ -451,6 +451,7 @@ export {
   verifyApiToken,
   listAccounts,
   listZones,
+  listZonesWithAccount,
   createTunnel,
   deleteTunnel as cfDeleteTunnel,
   getConnectorToken,

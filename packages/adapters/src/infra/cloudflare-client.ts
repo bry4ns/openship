@@ -89,6 +89,32 @@ export async function listZones(token: string, accountId: string): Promise<CfZon
   return res.map((z) => ({ zoneId: z.id, name: z.name }));
 }
 
+/**
+ * Zones across ALL accessible accounts, each carrying its owning account ids.
+ *
+ * Tokens commonly scope `Zone · Read` per-zone while omitting account-level
+ * read — `/accounts` then comes back EMPTY even though the token works fine
+ * for tunnels/DNS inside those zones. This fallback derives the account from
+ * the zones themselves so such tokens still connect.
+ */
+export async function listZonesWithAccount(
+  token: string,
+): Promise<Array<CfZone & { accountId: string; accountName: string }>> {
+  const res = await cfRequest<
+    Array<{
+      id: string;
+      name: string;
+      account: { id: string; name: string };
+    }>
+  >(token, "GET", "/zones?per_page=50");
+  return res.map((z) => ({
+    zoneId: z.id,
+    name: z.name,
+    accountId: z.account?.id ?? "",
+    accountName: z.account?.name ?? "Cloudflare",
+  }));
+}
+
 // ─── Tunnels ─────────────────────────────────────────────────────────────────
 
 export interface CfTunnelCreated {

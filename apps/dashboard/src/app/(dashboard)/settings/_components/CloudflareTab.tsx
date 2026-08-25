@@ -51,7 +51,7 @@ export function CloudflareTab() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get<IntegrationInfo>("integrations/cloudflare");
+      const res = await api.get<IntegrationInfo>("system/integrations/cloudflare");
       setInfo(res);
       if (res.connected && res.tunnels[0]) {
         await selectTunnel(res.tunnels[0].id);
@@ -75,7 +75,7 @@ export function CloudflareTab() {
   const selectTunnel = async (id: string) => {
     setActiveTunnel(id);
     try {
-      const st = await api.get<{ routes: RouteRow[] }>(`cf-tunnels/${id}/status`);
+      const st = await api.get<{ routes: RouteRow[] }>(`system/cf-tunnels/${id}/status`);
       setRoutes(st.routes ?? []);
     } catch {
       setRoutes([]);
@@ -87,7 +87,7 @@ export function CloudflareTab() {
     setBusy(true);
     setError(null);
     try {
-      await api.put("integrations/cloudflare", { apiToken: tokenInput.trim() });
+      await api.put("system/integrations/cloudflare", { apiToken: tokenInput.trim() });
       setTokenInput("");
       await load();
     } catch (err) {
@@ -101,7 +101,7 @@ export function CloudflareTab() {
     if (!confirm("Disconnect Cloudflare and remove all tunnels and routes?")) return;
     setBusy(true);
     try {
-      await api.delete("integrations/cloudflare");
+      await api.delete("system/integrations/cloudflare");
       setRoutes([]);
       setActiveTunnel(null);
       await load();
@@ -117,7 +117,7 @@ export function CloudflareTab() {
     setError(null);
     try {
       const serverId = selectedNode === "__local__" ? null : selectedNode;
-      const res = await api.post<{ tunnel: { id: string } }>("cf-tunnels/ensure", { serverId });
+      const res = await api.post<{ tunnel: { id: string } }>("system/cf-tunnels/ensure", { serverId });
       await load();
       await selectTunnel(res.tunnel.id);
     } catch (err) {
@@ -130,7 +130,7 @@ export function CloudflareTab() {
   const tunnelAction = async (id: string, action: "start" | "stop") => {
     setBusy(true);
     try {
-      await api.post(`cf-tunnels/${id}/${action}`);
+      await api.post(`system/cf-tunnels/${id}/${action}`);
       await load();
       await selectTunnel(id);
     } catch (err) {
@@ -144,7 +144,7 @@ export function CloudflareTab() {
     if (!confirm("Delete this tunnel and all its routes?")) return;
     setBusy(true);
     try {
-      await api.delete(`cf-tunnels/${id}`);
+      await api.delete(`system/cf-tunnels/${id}`);
       setRoutes([]);
       setActiveTunnel(null);
       await load();
@@ -160,7 +160,7 @@ export function CloudflareTab() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.post<{ route: RouteRow }>(`cf-tunnels/${activeTunnel}/routes`, {
+      const res = await api.post<{ route: RouteRow }>(`system/cf-tunnels/${activeTunnel}/routes`, {
         hostname: newHost.trim(),
         targetPort: Number(newPort),
       });
@@ -178,7 +178,7 @@ export function CloudflareTab() {
     if (!activeTunnel) return;
     setBusy(true);
     try {
-      await api.delete(`cf-tunnels/${activeTunnel}/routes/${rid}`);
+      await api.delete(`system/cf-tunnels/${activeTunnel}/routes/${rid}`);
       setRoutes((prev) => prev.filter((r) => r.id !== rid));
     } catch (err) {
       setError(getApiErrorMessage(err, "Failed to remove route"));

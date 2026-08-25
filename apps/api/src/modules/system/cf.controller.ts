@@ -19,6 +19,7 @@ import {
   verifyApiToken,
   listAccounts,
   listZones,
+  listZonesWithAccount,
   createTunnel,
   cfDeleteTunnel,
   getConnectorToken,
@@ -151,14 +152,35 @@ export async function connectIntegration(c: Context) {
 
   // Validate before persisting anything.
   await verifyApiToken(apiToken);
-  const accounts = await listAccounts(apiToken);
-  if (accounts.length === 0) return fail(c, "This token has no Cloudflare account access", 403);
-  const account = accounts[0];
+
+  // Resolve the Cloudflare account. Tokens usually scope Zone:Read per-zone
+  // while omitting account-level read — /accounts then returns EMPTY even
+  // though tunnels/DNS work fine. Fall back to deriving the account from the
+  // zones themselves before rejecting.
+  let accountId = "";
+  let label = "Cloudflare";
   let zones: CfZone[] = [];
-  try {
-    zones = await listZones(apiToken, account.id);
-  } catch {
-    zones = []; // token without Zone:Read still works for tunnels; domain picker degrades
+  const accounts = await listAccounts(apiToken).catch(() => []);
+  if (accounts.length > 0) {
+    accountId = accounts[0].id;
+    label = accounts[0].name;
+    try {
+      zones = await listZones(apiToken, accountId);
+    } catch {
+      zones = []; // token without Zone:Read still works for tunnels; domain picker degrades
+    }
+  } else {
+    const zoned = await listZonesWithAccount(apiToken);
+    if (zoned.length === 0) {
+      return fail(
+        c,
+        "This token is valid but has no account or zone access. Add Account:Cloudflare Tunnel:Edit + Zone:DNS:Edit (+ Zone:Zone:Read) to its permissions.",
+        403,
+      );
+    }
+    accountId = zoned[0]!.accountId;
+    label = zoned[0]!.accountName;
+    zones = zoned.map(({ zoneId, name }) => ({ zoneId, name }));
   }
 
   const existing = await db
@@ -167,7 +189,7 @@ export async function connectIntegration(c: Context) {
     .where(
       and(
         eq(schema.cfAccounts.organizationId, ctx.organizationId),
-        eq(schema.cfAccounts.cfAccountId, account.id),
+        eq(schema.cfAccounts.cfAccountId, accountId),
       ),
     )
     .limit(1);
@@ -177,11 +199,11 @@ export async function connectIntegration(c: Context) {
       .update(schema.cfAccounts)
       .set({
         apiTokenCiphertext: encrypt(apiToken),
-        label: account.name,
+        label,
         zonesCache: zones,
       })
       .where(eq(schema.cfAccounts.id, existing[0].id));
-    return c.json({ ok: true, label: account.name, zones });
+    return c.json({ ok: true, label, zones });
   }
 
   const anyAccount = await getAccount(ctx.organizationId);
@@ -196,12 +218,12 @@ export async function connectIntegration(c: Context) {
   await db.insert(schema.cfAccounts).values({
     id: crypto.randomUUID(),
     organizationId: ctx.organizationId,
-    cfAccountId: account.id,
-    label: account.name,
+    cfAccountId: accountId,
+    label,
     apiTokenCiphertext: encrypt(apiToken),
     zonesCache: zones,
   });
-  return c.json({ ok: true, label: account.name, zones });
+  return c.json({ ok: true, label, zones });
 }
 
 /** Disconnect: stop connectors (best effort), then cascade-delete everything. */
