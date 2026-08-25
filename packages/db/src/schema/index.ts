@@ -36,6 +36,7 @@ export { userSettings, instanceSettings } from "./settings";
 export { servers } from "./servers";
 export { serverGithubAuth, githubDeployKey } from "./server-github";
 export { serverTunnels } from "./server-tunnel";
+export { cfAccounts, cfTunnels, cfTunnelRoutes } from "./cf-tunnel";
 export { mailServers, mailInboundRule } from "./mail";
 export { serverAnalytics, serverAnalyticsGeo } from "./analytics";
 export { resourceUsage, RESOURCE_BUCKET_MINUTES, SINGLE_APP_SERVICE_KEY } from "./resource-usage";

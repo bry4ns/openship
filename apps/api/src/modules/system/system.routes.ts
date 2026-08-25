@@ -30,6 +30,7 @@ import * as migration from "./migration/migration.controller";
 import * as dataTransfer from "./data-transfer/data-transfer.controller";
 import * as systemHealth from "./system-health.controller";
 import * as edgeOrphans from "./edge-orphans.controller";
+import * as cf from "./cf.controller";
 
 const r = secureRouter(new Hono(), {
   module: "system",
@@ -50,6 +51,21 @@ r.public("get", "/health", { reason: "CLI `openship doctor` — internal-token g
 r.public("post", "/bootstrap-admin", { reason: "CLI first-admin creation — internal-token gated, one-shot before any admin exists (openship setup)" }, internalAuth, setup.bootstrapAdmin);
 r.public("post", "/reset-admin-password", { reason: "CLI password recovery — internal-token gated; resets the local admin login for a locked-out operator (openship reset-admin-password)" }, internalAuth, setup.resetAdminPassword);
 r.public("post", "/invite-signup", { reason: "Self-host invited signup — authorized by the unguessable invitation id (token) in the emailed link, NOT a session; creates the account for the invitation's own email. Public + rate-limited because the invitee isn't logged in yet." }, rateLimiterFor("auth-tight"), setup.inviteSignup);
+
+/* ── Cloudflare Tunnels integration ───────────────────────────────────────
+ * Connect a Cloudflare API token once, then per-node tunnels + hostname→port
+ * routes published through them (no inbound ports, TLS at CF's edge). */
+r.get("/integrations/cloudflare", { tag: "settings:read" }, cf.getIntegration);
+r.put("/integrations/cloudflare", { tag: "settings:write" }, requireInstanceAdmin(), cf.connectIntegration);
+r.delete("/integrations/cloudflare", { tag: "settings:write" }, requireInstanceAdmin(), cf.disconnectIntegration);
+r.get("/cf-tunnels/:id/status", { tag: "settings:read" }, cf.tunnelStatus);
+r.get("/cf-tunnels/:id/logs", { tag: "settings:read" }, cf.tunnelLogs);
+r.post("/cf-tunnels/ensure", { tag: "settings:write" }, requireInstanceAdmin(), cf.ensureTunnel);
+r.post("/cf-tunnels/:id/start", { tag: "settings:write" }, requireInstanceAdmin(), cf.startTunnel);
+r.post("/cf-tunnels/:id/stop", { tag: "settings:write" }, requireInstanceAdmin(), cf.stopTunnel);
+r.delete("/cf-tunnels/:id", { tag: "settings:write" }, requireInstanceAdmin(), cf.deleteTunnelHandler);
+r.post("/cf-tunnels/:id/routes", { tag: "settings:write" }, requireInstanceAdmin(), cf.addRoute);
+r.delete("/cf-tunnels/:id/routes/:rid", { tag: "settings:write" }, requireInstanceAdmin(), cf.removeRoute);
 
 /* ── Control-plane self-registration (CLI setup wizard) ─────────────
  * After bootstrap-admin, the wizard registers Openship itself as an app

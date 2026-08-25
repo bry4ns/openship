@@ -78,6 +78,7 @@
       "systemSender": "System sender",
       "credentials": "Credentials",
       "cloud": "Cloud",
+      "cloudflare": "Cloudflare Tunnel",
       "infrastructure": "Infrastructure",
       "instance": "Instance"
     }

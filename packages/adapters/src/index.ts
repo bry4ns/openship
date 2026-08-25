@@ -448,6 +448,20 @@ export {
 } from "./system/executor";
 export { DockerEdgeExecutor } from "./system/docker-edge-executor";
 export {
+  verifyApiToken,
+  listAccounts,
+  listZones,
+  createTunnel,
+  deleteTunnel as cfDeleteTunnel,
+  getConnectorToken,
+  putIngressConfig,
+  createTunnelDnsRecord,
+  deleteDnsRecord,
+  type CfAccount,
+  type CfZone,
+  type CfIngressRule,
+} from "./infra/cloudflare-client";
+export {
   edgeContainerExecutor,
   containerCommand,
   readEdgeFile,

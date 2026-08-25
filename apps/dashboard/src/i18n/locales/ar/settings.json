@@ -55,6 +55,7 @@
       "notifications": "الإشعارات",
       "credentials": "بيانات الاعتماد",
       "cloud": "السحابة",
+      "cloudflare": "Cloudflare Tunnel",
       "infrastructure": "البنية التحتية",
       "instance": "النسخة"
     }
