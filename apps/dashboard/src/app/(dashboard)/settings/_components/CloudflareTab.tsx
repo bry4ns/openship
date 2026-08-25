@@ -30,7 +30,7 @@ type IntegrationInfo =
   | { connected: false }
   | { connected: true; label: string; zones: Zone[]; tunnels: TunnelSummary[] };
 
-type RouteRow = { id: string; hostname: string; targetPort: number; projectId?: string | null };
+type RouteRow = { id: string; hostname: string; targetPort: number; mode?: string; projectId?: string | null };
 
 export function CloudflareTab() {
   const [info, setInfo] = useState<IntegrationInfo | null>(null);
@@ -46,6 +46,9 @@ export function CloudflareTab() {
   const [activeTunnel, setActiveTunnel] = useState<string | null>(null);
   const [newHost, setNewHost] = useState("");
   const [newPort, setNewPort] = useState("");
+  const [routeMode, setRouteMode] = useState<"app" | "edge">("edge");
+  const [routeProject, setRouteProject] = useState<string>("");
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +73,12 @@ export function CloudflareTab() {
       .get<{ id: string; name: string }[]>("system/servers")
       .then((s) => setServers(Array.isArray(s) ? s : []))
       .catch(() => setServers([]));
+    api
+      .get<{ success: boolean; projects: Array<{ id: string; name: string }> }>(
+        "projects/home",
+      )
+      .then((r) => setProjects(r.projects ?? []))
+      .catch(() => setProjects([]));
   }, [load]);
 
   const selectTunnel = async (id: string) => {
@@ -163,6 +172,8 @@ export function CloudflareTab() {
       const res = await api.post<{ route: RouteRow }>(`system/cf-tunnels/${activeTunnel}/routes`, {
         hostname: newHost.trim(),
         targetPort: Number(newPort),
+        mode: routeMode,
+        projectId: routeMode === "edge" ? routeProject || undefined : undefined,
       });
       setRoutes((prev) => [...prev.filter((r) => r.id !== res.route.id), res.route]);
       setNewHost("");
@@ -373,7 +384,15 @@ export function CloudflareTab() {
                               </a>
                             </td>
                             <td className="py-1.5 pr-2 text-muted-foreground">
-                              → localhost:{r.targetPort}
+                              {r.mode === "edge" ? (
+                                <span title="Via OpenResty — analytics included">
+                                  ⛅ via edge · :{r.targetPort}
+                                </span>
+                              ) : (
+                                <span title="Direct to app port — bypasses edge stats">
+                                  ⚡ direct · :{r.targetPort}
+                                </span>
+                              )}
                             </td>
                             <td className="py-1.5 w-8 text-right">
                               <button
@@ -397,6 +416,28 @@ export function CloudflareTab() {
                     </table>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <select
+                        value={routeMode}
+                        onChange={(e) => setRouteMode(e.target.value as "app" | "edge")}
+                        className="rounded-xl border border-border/50 bg-background px-3 py-1.5 text-sm"
+                      >
+                        <option value="edge">⛅ Via edge (stats)</option>
+                        <option value="app">⚡ Direct to port</option>
+                      </select>
+                      {routeMode === "edge" && (
+                        <select
+                          value={routeProject}
+                          onChange={(e) => setRouteProject(e.target.value)}
+                          className="max-w-[200px] rounded-xl border border-border/50 bg-background px-3 py-1.5 text-sm"
+                        >
+                          <option value="">Select project…</option>
+                          {projects.map((pr) => (
+                            <option key={pr.id} value={pr.id}>
+                              {pr.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       <input
                         value={newHost}
                         onChange={(e) => setNewHost(e.target.value)}

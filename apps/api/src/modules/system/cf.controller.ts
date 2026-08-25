@@ -29,6 +29,7 @@ import {
   type CfIngressRule,
   type CfZone,
 } from "@repo/adapters";
+import { applyProjectRouting } from "../domains/routing-apply.service";
 import {
   ensureConnectorRunning,
   stopConnector,
@@ -84,7 +85,9 @@ async function syncIngress(account: CfAccountRow, tunnel: CfTunnelRow): Promise<
   const rows = await routesOf(tunnel.id);
   const ingress: CfIngressRule[] = rows.map((r) => ({
     hostname: r.hostname,
-    service: `http://localhost:${r.targetPort}`,
+    // 'edge' routes hand off to OpenResty on :80 (Host-based vhost, analytics
+    // included); 'app' routes go straight to the app port.
+    service: r.mode === "edge" ? "http://localhost:80" : `http://localhost:${r.targetPort}`,
   }));
   ingress.push({ service: "http_status:404" });
   await putIngressConfig(token, account.cfAccountId, tunnel.cfTunnelId, ingress);
@@ -379,6 +382,7 @@ export async function tunnelStatus(c: Context) {
         hostname: r.hostname,
         targetPort: r.targetPort,
         projectId: r.projectId,
+        mode: r.mode,
       })),
     });
   } catch (err) {
@@ -443,11 +447,13 @@ export async function addRoute(c: Context) {
     targetPort?: unknown;
     zoneId?: unknown;
     projectId?: unknown;
+    mode?: unknown;
   };
   const hostname = typeof body.hostname === "string" ? body.hostname.trim().toLowerCase() : "";
   const targetPort = Number(body.targetPort);
   const projectId = typeof body.projectId === "string" && body.projectId ? body.projectId : null;
   const providedZoneId = typeof body.zoneId === "string" && body.zoneId ? body.zoneId : null;
+  const mode = body.mode === "edge" ? "edge" : "app";
 
   if (!HOSTNAME_RE.test(hostname)) return fail(c, "Invalid hostname");
   if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) {
@@ -465,10 +471,41 @@ export async function addRoute(c: Context) {
     return fail(c, "Hostname is not under any of your connected Cloudflare zones");
   }
 
+  if (mode === "edge" && !projectId) {
+    return fail(c, "edge mode publishes through OpenResty and requires the owning project");
+  }
+
   const apiToken = decrypt(account.apiTokenCiphertext);
   const existingRoutes = await routesOf(tunnel.id);
   if (existingRoutes.some((r) => r.hostname === hostname)) {
     return fail(c, "Hostname already published through this tunnel", 409);
+  }
+
+  // 'edge' mode rides an OpenShip-managed route: record the domain as
+  // externalIngress (plain-HTTP vhost, no certbot — TLS lives at Cloudflare),
+  // then let applyProjectRouting render it. Same contract the BYO-proxy flow
+  // uses in self-app.controller.ts.
+  let domainId: string | null = null;
+  if (mode === "edge") {
+    const domainRow = await repos.domain.findOrCreate({
+      projectId: projectId!,
+      hostname,
+      domainType: "custom",
+      isPrimary: false,
+      externalIngress: true,
+      verified: true,
+      verifiedAt: new Date(),
+      status: "active",
+      sslStatus: "external",
+      targetPort,
+    });
+    domainId = domainRow.id;
+    await applyProjectRouting(projectId!).catch(async (err) => {
+      if (domainId) await db.delete(schema.domain).where(eq(schema.domain.id, domainId)).catch(() => {});
+      throw new Error(
+        `Edge routing failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
   }
 
   // DNS first (fails fast on permission problems, nothing persisted yet).
@@ -488,6 +525,8 @@ export async function addRoute(c: Context) {
       projectId,
       hostname,
       targetPort,
+      mode,
+      domainId,
       zoneId,
       dnsRecordId,
     })
@@ -506,6 +545,11 @@ export async function addRoute(c: Context) {
     // Roll back fully — the route must not exist half-published.
     await db.delete(schema.cfTunnelRoutes).where(eq(schema.cfTunnelRoutes.id, inserted[0].id));
     await deleteDnsRecord(apiToken, zoneId, dnsRecordId!).catch(() => {});
+    if (mode === "edge" && projectId) {
+      if (domainId)
+        await db.delete(schema.domain).where(eq(schema.domain.id, domainId)).catch(() => {});
+      await applyProjectRouting(projectId).catch(() => {});
+    }
     return fail(c, `Ingress update failed: ${err instanceof Error ? err.message : String(err)}`, 502);
   }
 
@@ -533,6 +577,14 @@ export async function removeRoute(c: Context) {
       await deleteDnsRecord(apiToken, route.zoneId, route.dnsRecordId).catch(() => {});
     }
     await db.delete(schema.cfTunnelRoutes).where(eq(schema.cfTunnelRoutes.id, route.id));
+    if (route.mode === "edge") {
+      if (route.domainId)
+        await db
+          .delete(schema.domain)
+          .where(eq(schema.domain.id, route.domainId))
+          .catch(() => {});
+      if (route.projectId) await applyProjectRouting(route.projectId).catch(() => {});
+    }
     try {
       // Rebuild without the removed route; when empty this leaves only the
       // catch-all (nothing published).

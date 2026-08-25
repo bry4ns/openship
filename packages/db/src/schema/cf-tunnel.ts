@@ -125,6 +125,17 @@ export const cfTunnelRoutes = pgTable(
     hostname: text("hostname").notNull().unique(),
     targetPort: integer("target_port").notNull(),
 
+    /**
+     * 'app'  → cloudflared → localhost:<targetPort> (edge bypassed: no stats).
+     * 'edge' → cloudflared → localhost:80, OpenResty routes by Host to the app
+     *          via the linked domain row (externalIngress): full analytics,
+     *          rate-limits and rules-engine. TLS stays at Cloudflare.
+     */
+    mode: text("mode").notNull().default("app"),
+
+    /** For 'edge' routes: the OpenShip domain row this route created/drives. */
+    domainId: text("domain_id"),
+
     zoneId: text("zone_id"),
     dnsRecordId: text("dns_record_id"),
 
