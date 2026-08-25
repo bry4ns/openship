@@ -867,25 +867,6 @@ export const DomainSettings = () => {
           externalIngress,
           sslChallenge: effectiveSslChallenge,
         });
-      if (isCustom && viaTunnel) {
-        // Publish through the Cloudflare Tunnel: ensure the node's connector,
-        // attach hostname→edge route (registers the externalIngress domain row
-        // + renders its vhost server-side). No verify step — we own the DNS.
-        if (!cfZones.length) {
-          showToast("Cloudflare is connected but returned no zones", "error", t.projectSettings.domains.toast.addDomainTitle);
-          return;
-        }
-        const ensured = await api.post<{ tunnel: { id: string } }>(
-          "system/cf-tunnels/ensure",
-          {},
-        );
-        await api.post(`system/cf-tunnels/${ensured.tunnel.id}/routes`, {
-          hostname: host,
-          targetPort: Number(portValue),
-          mode: "edge",
-          projectId: id,
-        });
-      } else if (isCustom) {
         if (!result.success) {
           showToast(
             result.error || t.projectSettings.domains.toast.addDomainFailed,
@@ -895,9 +876,6 @@ export const DomainSettings = () => {
           return;
         }
         if (result.records?.records) setDnsRecords(result.records.records);
-        // Track EVERY row the connect created. `result.www` is the sibling's own
-        // row (its own verify, its own cert); `wwwError` means it couldn't be
-        // claimed at all — say so instead of leaving the toggle looking successful.
         setPendingVerifyDomains([
           ...(typeof result.domain?.id === "string"
             ? [{ id: result.domain.id as string, hostname: host }]
@@ -909,7 +887,7 @@ export const DomainSettings = () => {
         }
       }
 
-      const target = hasProjectServer
+const target = hasProjectServer
         ? { port: portValue }
         : { targetPath: newDomainPath.trim() || "/" };
       const nextEndpoint = createPublicEndpoint({
