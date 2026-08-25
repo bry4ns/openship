@@ -216,6 +216,10 @@ export function routeDomainRowToPublicEndpoint(
 
   const redirect = normalizeRedirectFields(domain.redirectTo, domain.redirectStatus);
 
+  // Preserve tunnel-mode ingress on reads: the deploy wizard keys its ☁ tab
+  // off this flag, and a dropped one bounces the user back to Custom.
+  const tunnelIngress = domain.externalIngress === true ? { externalIngress: true } : {};
+
   if (domainType === "free") {
     const slug = managedHostnameToSlug(hostname);
     if (!slug) return null;
@@ -225,6 +229,7 @@ export function routeDomainRowToPublicEndpoint(
       ...(targetPath ? { targetPath } : {}),
       domain: slug,
       domainType,
+      ...tunnelIngress,
       ...redirect,
     } satisfies StoredPublicEndpoint;
   }
@@ -234,6 +239,7 @@ export function routeDomainRowToPublicEndpoint(
     ...(targetPath ? { targetPath } : {}),
     customDomain: hostname,
     domainType,
+    ...tunnelIngress,
     ...redirect,
   } satisfies StoredPublicEndpoint;
 }
