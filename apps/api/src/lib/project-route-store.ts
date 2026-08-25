@@ -257,6 +257,21 @@ export async function syncProjectPublicRoutes(
       patch.targetPath = route.targetPath ?? null;
     }
     if ((existing.domainType ?? null) !== route.domainType) patch.domainType = route.domainType;
+
+    // A tunnel-attached hostname arrives pre-verified (we wrote its DNS record
+    // ourselves), so adopting the flag promotes a pending/custom row instead of
+    // leaving it blocked behind a TXT check that will never be satisfied.
+    if (route.externalIngress && !existing.externalIngress) {
+      patch.externalIngress = true;
+      if (!existing.verified || existing.status !== "active") {
+        patch.status = "active";
+        patch.verified = true;
+        patch.verifiedAt = existing.verifiedAt ?? new Date();
+      }
+    }
+    if (route.externalIngress !== Boolean(existing.externalIngress) && !route.externalIngress) {
+      patch.externalIngress = false;
+    }
     if (existing.isPrimary !== route.isPrimary) patch.isPrimary = route.isPrimary;
     // The submitted endpoint list is authoritative for the redirect, so an OMITTED
     // one clears it — that's how "stop redirecting, serve the app here" is

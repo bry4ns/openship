@@ -99,6 +99,7 @@ function serializeProjectPublicEndpoint(
     domain: endpoint.domain || undefined,
     customDomain: endpoint.customDomain || undefined,
     domainType: endpoint.domainType,
+    ...(endpoint.externalIngress ? { externalIngress: true } : {}),
     ...redirectPayloadFields(endpoint),
   };
 }
@@ -114,6 +115,7 @@ function serializeBuildPublicEndpoint(
     domain: endpoint.domain,
     customDomain: endpoint.customDomain,
     domainType: endpoint.domainType,
+    ...(endpoint.externalIngress ? { externalIngress: true } : {}),
     ...redirectPayloadFields(endpoint),
   };
 }

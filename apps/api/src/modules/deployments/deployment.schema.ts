@@ -36,6 +36,7 @@ const PublicEndpointInput = Type.Object({
   domain: Type.Optional(Type.String()),
   customDomain: Type.Optional(Type.String()),
   domainType: Type.Optional(Type.Union([Type.Literal("free"), Type.Literal("custom")])),
+  externalIngress: Type.Optional(Type.Boolean()),
   /** Canonical redirect to another hostname of the same project instead of serving
    *  (validated by lib/domain-redirect.ts). Declared here because the deploy sends
    *  the endpoint list back and an omitted redirect CLEARS the stored one — a
