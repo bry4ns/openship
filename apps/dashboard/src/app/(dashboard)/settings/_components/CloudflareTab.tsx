@@ -67,7 +67,7 @@ export function CloudflareTab() {
   useEffect(() => {
     void load();
     api
-      .get<{ id: string; name: string }[]>("servers")
+      .get<{ id: string; name: string }[]>("system/servers")
       .then((s) => setServers(Array.isArray(s) ? s : []))
       .catch(() => setServers([]));
   }, [load]);

@@ -73,8 +73,8 @@ export interface CfAccount {
 }
 
 export async function listAccounts(token: string): Promise<CfAccount[]> {
-  const page = await cfRequest<{ result: CfAccount[] }>(token, "GET", "/accounts?per_page=5");
-  return page.result;
+  // NOTE: cfRequest already unwraps the { success, result } envelope.
+  return cfRequest<CfAccount[]>(token, "GET", "/accounts?per_page=5");
 }
 
 export interface CfZone {
