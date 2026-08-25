@@ -571,6 +571,9 @@ export function createPublicEndpoint(
     domain: overrides.domain ?? "",
     customDomain: overrides.customDomain ?? "",
     domainType: overrides.domainType ?? "free",
+    // Tunnel-mode marker must survive normalization — the deploy wizard keys
+    // its ☁ Cloudflare tab off this flag.
+    ...(overrides.externalIngress ? { externalIngress: true } : {}),
     ...(overrides.redirectTo ? { redirectTo: overrides.redirectTo } : {}),
     ...(overrides.redirectStatus ? { redirectStatus: overrides.redirectStatus } : {}),
   };
