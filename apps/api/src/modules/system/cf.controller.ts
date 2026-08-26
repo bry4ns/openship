@@ -31,7 +31,7 @@ import {
   type CfIngressRule,
   type CfZone,
 } from "@repo/adapters";
-import { applyProjectRouting } from "../domains/routing-apply.service";
+import { reapplyProjectLiveRoutes } from "../domains/project-route.service";
 import {
   ensureConnectorRunning,
   stopConnector,
@@ -537,8 +537,10 @@ export async function addRoute(c: Context) {
 
   // 'edge' mode rides an OpenShip-managed route: record the domain as
   // externalIngress (plain-HTTP vhost, no certbot — TLS lives at Cloudflare),
-  // then let applyProjectRouting render it. Same contract the BYO-proxy flow
-  // uses in self-app.controller.ts.
+  // then re-render the project's LIVE routes so the vhost appears on the edge
+  // NOW (single-app projects have no services, so applyProjectRouting alone
+  // would emit nothing for them — reapplyProjectLiveRoutes is the renderer that
+  // registers project-level domains with their resolved upstream).
   let domainId: string | null = null;
   if (mode === "edge") {
     const domainRow = await repos.domain.findOrCreate({
@@ -551,11 +553,15 @@ export async function addRoute(c: Context) {
       verifiedAt: new Date(),
       status: "active",
       sslStatus: "external",
-      targetPort,
+      targetPort: storedPort > 0 ? storedPort : undefined,
     });
     domainId = domainRow.id;
-    await applyProjectRouting(projectId!).catch(async (err) => {
-      if (domainId) await db.delete(schema.domain).where(eq(schema.domain.id, domainId)).catch(() => {});
+    const project = await repos.project.findById(projectId!);
+    if (!project) return fail(c, "Project not found", 404);
+    await reapplyProjectLiveRoutes(project, []).catch(async (err) => {
+      if (domainId) {
+        await db.delete(schema.domain).where(eq(schema.domain.id, domainId)).catch(() => {});
+      }
       throw new Error(
         `Edge routing failed: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -602,7 +608,8 @@ export async function addRoute(c: Context) {
     if (mode === "edge" && projectId) {
       if (domainId)
         await db.delete(schema.domain).where(eq(schema.domain.id, domainId)).catch(() => {});
-      await applyProjectRouting(projectId).catch(() => {});
+      const project = await repos.project.findById(projectId).catch(() => null);
+      if (project) await reapplyProjectLiveRoutes(project, []).catch(() => {});
     }
     return fail(c, `Ingress update failed: ${err instanceof Error ? err.message : String(err)}`, 502);
   }
@@ -637,7 +644,15 @@ export async function removeRoute(c: Context) {
           .delete(schema.domain)
           .where(eq(schema.domain.id, route.domainId))
           .catch(() => {});
-      if (route.projectId) await applyProjectRouting(route.projectId).catch(() => {});
+      if (route.projectId) {
+        const project = await repos.project.findById(route.projectId).catch(() => null);
+        if (project) {
+          // previousHostnames=[hostname] tears the dropped hostname's vhost down
+          // (reapplyProjectLiveRoutes renders single-app project-level domains;
+          // applyProjectRouting alone would leave the vhost up for them).
+          await reapplyProjectLiveRoutes(project, [route.hostname]).catch(() => {});
+        }
+      }
     }
     try {
       // Rebuild without the removed route; when empty this leaves only the
