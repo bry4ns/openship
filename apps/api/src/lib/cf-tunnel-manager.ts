@@ -2,7 +2,11 @@
  * Cloudflared connector container lifecycle — the runtime half of the
  * Cloudflare Tunnels integration.
  *
- * One `cloudflare/cloudflared` container per node that needs exposure:
+ * One connector per TUNNEL (tunnels are org-scoped, one per org+node): naming
+ * the container after the tunnel row lets several workspaces tunnel the same
+ * node side by side — the same "shared host, per-workspace ownership" rule the
+ * global host-port claims follow.
+ *
  *   - local node (serverId null) → commands run through the host executor
  *     (the control-plane box itself, docker socket mounted);
  *   - remote node → through sshManager (docker is an OpenShip-managed
@@ -17,7 +21,20 @@
 
 import { sshManager } from "./ssh-manager";
 
-export const CLOUDFLARED_CONTAINER = "openship-cloudflared";
+/**
+ * One connector container per TUNNEL (not per node). Tunnels are org-scoped, so
+ * naming the container after the tunnel row lets several workspaces tunnel the
+ * SAME node without fighting over a single fixed name — the same reason host
+ * ports are claimed globally per host. The legacy fixed-name container
+ * (`openship-cloudflared`) is removed on ensure/stop as a one-time migration.
+ */
+export function connectorContainerName(tunnelRowId: string): string {
+  return `openship-cloudflared-${tunnelRowId}`;
+}
+
+/** The pre-per-tunnel fixed name; cleaned up by ensure/stop. */
+const LEGACY_CONTAINER = "openship-cloudflared";
+
 const CLOUDFLARED_IMAGE = "cloudflare/cloudflared:latest";
 
 export interface NodeCommandResult {
@@ -75,9 +92,10 @@ export async function ensureConnectorRunning(
 ): Promise<void> {
   const opId = `cf:ensure:${tunnelRowId}`;
   const token = safeToken(connectorToken);
+  const container = connectorContainerName(tunnelRowId);
   const cmd =
-    `docker rm -f ${CLOUDFLARED_CONTAINER} >/dev/null 2>&1 || true; ` +
-    `docker run -d --name ${CLOUDFLARED_CONTAINER} ` +
+    `docker rm -f ${LEGACY_CONTAINER} ${container} >/dev/null 2>&1 || true; ` +
+    `docker run -d --name ${container} ` +
     `--restart unless-stopped --network host ` +
     `-e TUNNEL_TOKEN=${shQuote(token)} ` +
     `${CLOUDFLARED_IMAGE} tunnel --no-autoupdate run`;
@@ -95,7 +113,7 @@ export async function stopConnector(
   const res = await runOnNode(
     serverId,
     `cf:stop:${tunnelRowId}`,
-    `docker rm -f ${CLOUDFLARED_CONTAINER} >/dev/null 2>&1 || true`,
+    `docker rm -f ${LEGACY_CONTAINER} ${connectorContainerName(tunnelRowId)} >/dev/null 2>&1 || true`,
   );
   if (res.code !== 0) throw new Error(res.stderr || "Failed to stop cloudflared");
 }
@@ -110,7 +128,7 @@ export async function connectorStatus(
   const res = await runOnNode(
     serverId,
     `cf:status:${tunnelRowId}`,
-    `docker inspect -f '{{.State.Status}}' ${CLOUDFLARED_CONTAINER} 2>/dev/null || echo absent`,
+    `docker inspect -f '{{.State.Status}}' ${connectorContainerName(tunnelRowId)} 2>/dev/null || echo absent`,
   );
   const out = res.stdout.trim();
   if (["running", "exited", "created", "paused", "restarting"].includes(out)) {
@@ -127,7 +145,7 @@ export async function connectorLogs(
   const res = await runOnNode(
     serverId,
     `cf:logs:${tunnelRowId}`,
-    `docker logs --tail 120 ${CLOUDFLARED_CONTAINER} 2>&1 | tail -c 8000`,
+    `docker logs --tail 120 ${connectorContainerName(tunnelRowId)} 2>&1 | tail -c 8000`,
   );
   return res.stdout || res.stderr;
 }
