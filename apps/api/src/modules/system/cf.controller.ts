@@ -341,7 +341,16 @@ export async function ensureTunnel(c: Context) {
       const s = await repos.server.getInOrganization(serverId, ctx.organizationId);
       nodeName = (s?.name ?? "remote").replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 30);
     }
-    const created = await createTunnel(apiToken, account.cfAccountId, `openship-${nodeName}`);
+    // Tunnel names are unique per Cloudflare ACCOUNT. Two workspaces sharing one
+    // CF account and connecting the same node would otherwise collide on
+    // `openship-<node>` (CF error 1013) — suffix the org so each workspace gets
+    // its own tunnel even inside a shared account.
+    const orgSuffix = ctx.organizationId.replace(/[^a-zA-Z0-9]/g, "").slice(-6);
+    const created = await createTunnel(
+      apiToken,
+      account.cfAccountId,
+      `openship-${nodeName}-${orgSuffix}`,
+    );
     const connectorToken = await getConnectorToken(apiToken, account.cfAccountId, created.id);
     const inserted = await db
       .insert(schema.cfTunnels)
