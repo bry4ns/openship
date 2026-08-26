@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isValidCustomHostname } from "@repo/core";
 import { api, getApiErrorMessage, projectsApi } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
@@ -43,6 +43,26 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
   const { showToast } = useToast();
   const { t } = useI18n();
   const { selfHosted } = usePlatform();
+
+  // Tunnel node label for the ☁ tab: the deploy-target server's name, or the
+  // control-plane box when deploying locally. Read once when a server is targeted.
+  const [serverName, setServerName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!serverId) {
+      setServerName(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ id: string; name?: string }>(`system/servers/${serverId}`)
+      .then((s) => {
+        if (!cancelled) setServerName(s?.name ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [serverId]);
 
   const handleChange = useCallback(async (
     nextEndpoints: PublicEndpoint[],
@@ -204,6 +224,7 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
       hasServer={hasServer}
       runtimePort={runtimePort}
       onEndpointsChange={handleChange}
+      tunnelNode={serverName || (serverId ? undefined : "This box (OpenShip)")}
       // "Include www" creates the sibling as a 301 to the apex, so the control has
       // to be visible here or that's an invisible redirect. Rendered in the box's
       // own vhost → self-hosted only (the API refuses it for cloud projects).

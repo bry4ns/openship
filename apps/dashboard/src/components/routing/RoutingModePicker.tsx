@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { isApexDomain } from "@repo/core";
 import { useI18n } from "@/components/i18n-provider";
 import { api } from "@/lib/api";
@@ -45,6 +45,10 @@ interface RoutingModePickerProps {
    *  toggle CREATES a redirect — hiding the control would leave the user with a
    *  301 they didn't see and can't change. */
   allowRedirects?: boolean;
+  /** Node the Cloudflare connector will run on (the deploy target). Shown in the
+   *  ☁ tab so the operator sees WHICH server gets the tunnel. Undefined = the
+   *  OpenShip box itself. */
+  tunnelNode?: string;
 }
 
 // Segmented tab styling — identical to RoutingSettingsCard's Free/Custom tabs so
@@ -65,6 +69,7 @@ export function RoutingModePicker({
   allowPortEdit = false,
   saveMode = "change",
   allowRedirects = false,
+  tunnelNode,
 }: RoutingModePickerProps) {
   const { t } = useI18n();
   const w = t.widgets.routing.settingsCard;
@@ -117,6 +122,29 @@ export function RoutingModePicker({
       ...endpoints.slice(1),
     ]);
   };
+
+  // Fully automatic: switching to ☁ Cloudflare immediately reserves a generated
+  // subdomain on the first connected zone (like Free DNS does with the slug),
+  // instead of leaving an empty hostname until the operator types. No-op when a
+  // hostname is already committed (a reload / an edited one stays as-is), and
+  // fires again only if the endpoint ends up with no hostname at all.
+  const autoCommittedRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "cloudflare") {
+      autoCommittedRef.current = false;
+      return;
+    }
+    if (cfZones.length === 0) return;
+    const current = endpoints[0]?.domainType === "custom" ? (endpoints[0]?.customDomain ?? "") : "";
+    if (current.includes(".")) {
+      autoCommittedRef.current = true;
+      return;
+    }
+    if (autoCommittedRef.current) return;
+    autoCommittedRef.current = true;
+    setCfHost(normalizeSub(projectName), cfZones[0].name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, cfZones, projectName, endpoints]);
 
   // The apex the www variant would attach to: the first custom endpoint's hostname,
   // but ONLY when it's a real registrable apex — `www.<subdomain>` is nonsensical,
@@ -241,7 +269,8 @@ export function RoutingModePicker({
             </div>
             <p className="text-xs text-muted-foreground">
               → https://{cfHost || `${normalizeSub(projectName)}.${cfZone}`} · DNS, TLS and the
-              edge vhost are provisioned automatically (analytics included).
+              edge vhost are provisioned automatically (analytics included)
+              {tunnelNode ? ` · Túnel en: ${tunnelNode}` : ""}.
             </p>
           </div>
         )
