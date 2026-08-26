@@ -735,6 +735,23 @@ export const EXCLUDED_TABLES: Record<string, string> = {
   host_port_claim:
     "physical-target port reservations; never export, clone, or transfer across instances",
 
+  // Cloudflare Tunnels integration (fork feature). Per-node physical + cloud-side
+  // state: cf_tunnels pins a Cloudflare tunnel uuid + connector token to a specific
+  // server, cf_tunnel_routes pins DNS record ids + ingress entries to that tunnel,
+  // and cf_accounts holds one encrypted API token per org. All three are bound to
+  // the source machine's connectors and the operator's Cloudflare account; on a
+  // destination they are re-provisioned automatically from the re-pasted token
+  // (Settings → Cloudflare Tunnel → the wizard re-creates tunnels + DNS + ingress),
+  // so carrying them would ship stale tunnel/DNS ids and instance-key ciphertext
+  // for no gain. The app's externalIngress domain rows DO travel; they simply need
+  // re-publishing on the receiver.
+  cf_accounts:
+    "per-org Cloudflare API token + zones cache; re-paste the token on the receiver and tunnels re-provision",
+  cf_tunnels:
+    "physical-node connector state (tunnel uuid, encrypted connector token); re-created on demand per node",
+  cf_tunnel_routes:
+    "hostname→port ingress entries pinned to a source-machine tunnel + Cloudflare DNS ids; re-published per app",
+
   // Caches / host-derived — the host, not the DB, is the source of truth.
   update_status: "cached upstream scan result; the next `updates:scan` refills it",
   server_container_status: "cached container drift; re-probed from the host",

@@ -10,6 +10,7 @@
  */
 
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { and, eq, isNull } from "drizzle-orm";
 import { db, repos, schema } from "@repo/db";
 import { getRequestContext } from "../../lib/request-context";
@@ -41,7 +42,7 @@ import {
 type CfAccountRow = typeof schema.cfAccounts.$inferSelect;
 type CfTunnelRow = typeof schema.cfTunnels.$inferSelect;
 
-function fail(c: Context, message: string, status = 400) {
+function fail(c: Context, message: string, status: ContentfulStatusCode = 400) {
   return c.json({ error: message }, status);
 }
 
@@ -494,15 +495,24 @@ export async function addRoute(c: Context) {
     mode?: unknown;
   };
   const hostname = typeof body.hostname === "string" ? body.hostname.trim().toLowerCase() : "";
-  const targetPort = Number(body.targetPort);
+  const hasPort = body.targetPort !== undefined && body.targetPort !== null && body.targetPort !== "";
+  const targetPort = hasPort ? Number(body.targetPort) : NaN;
   const projectId = typeof body.projectId === "string" && body.projectId ? body.projectId : null;
   const providedZoneId = typeof body.zoneId === "string" && body.zoneId ? body.zoneId : null;
   const mode = body.mode === "edge" ? "edge" : "app";
 
   if (!HOSTNAME_RE.test(hostname)) return fail(c, "Invalid hostname");
-  if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) {
+  if (Number.isInteger(targetPort) && (targetPort < 1 || targetPort > 65535)) {
     return fail(c, "targetPort must be an integer between 1 and 65535");
   }
+  // 'edge' routes hand off to OpenResty on :80 (Host-based vhost) and don't need
+  // a direct app port — a static project publishes with none. 'app' routes dial
+  // localhost:<targetPort> directly, so a port is mandatory.
+  if (!Number.isInteger(targetPort) && mode === "app") {
+    return fail(c, "targetPort is required for direct 'app' routes");
+  }
+  // Edge without a port → 0 sentinel (unused; ingress maps edge → localhost:80).
+  const storedPort = Number.isInteger(targetPort) && targetPort > 0 ? targetPort : 0;
 
   const zones = decryptedZones(account);
   const zone =
@@ -568,7 +578,7 @@ export async function addRoute(c: Context) {
       tunnelId: tunnel.id,
       projectId,
       hostname,
-      targetPort,
+      targetPort: storedPort,
       mode,
       domainId,
       zoneId,

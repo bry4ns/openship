@@ -11,4 +11,5 @@
 -- removing the route also removes the vhost cleanly.
 
 ALTER TABLE "cf_tunnel_routes" ADD COLUMN IF NOT EXISTS "mode" text DEFAULT 'app' NOT NULL;
+--> statement-breakpoint
 ALTER TABLE "cf_tunnel_routes" ADD COLUMN IF NOT EXISTS "domain_id" text;

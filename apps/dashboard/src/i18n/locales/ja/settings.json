@@ -55,7 +55,7 @@
       "notifications": "通知",
       "credentials": "認証情報",
       "cloud": "クラウド",
-      "cloudflare": "Cloudflare Tunnel",
+      "cloudflare": "Cloudflare トンネル",
       "infrastructure": "インフラ",
       "instance": "インスタンス"
     }

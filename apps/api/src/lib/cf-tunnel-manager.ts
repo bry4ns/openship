@@ -15,7 +15,6 @@
  * container simply staying up.
  */
 
-import { createHostExecutor } from "@repo/adapters";
 import { sshManager } from "./ssh-manager";
 
 export const CLOUDFLARED_CONTAINER = "openship-cloudflared";
@@ -41,10 +40,15 @@ async function runOnNode(
     return { code: r.code, stdout: r.stdout, stderr: r.stderr };
   }
   try {
-    const stdout = await createHostExecutor().exec(command);
+    // The pooled HOST channel (withHostExecutor) rather than the raw
+    // createHostExecutor() factory: the factory builds a NEW SSH connection to
+    // the host per call and an un-disposed one leaks an sshd session (#291), while
+    // the manager's channel is cached, concurrent-acquire-deduped and reclaimed by
+    // the same idle timer as a server. exec() rejects on non-zero exit with the
+    // combined output in the message.
+    const stdout = await sshManager.withHostExecutor((executor) => executor.exec(command));
     return { code: 0, stdout, stderr: "" };
   } catch (err) {
-    // exec() rejects on non-zero exit with combined output in the message.
     return { code: 1, stdout: "", stderr: err instanceof Error ? err.message : String(err) };
   }
 }

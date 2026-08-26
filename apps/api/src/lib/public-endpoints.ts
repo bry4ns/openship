@@ -75,6 +75,7 @@ export type ProjectDomainRow = Pick<
   | "domainType"
   | "redirectTo"
   | "redirectStatus"
+  | "externalIngress"
 >;
 
 function normalizePort(port: number | string | null | undefined): number | null {

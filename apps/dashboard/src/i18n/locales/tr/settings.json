@@ -56,7 +56,7 @@
       "email": "E-posta",
       "credentials": "Kimlik bilgileri",
       "cloud": "Bulut",
-      "cloudflare": "Cloudflare Tunnel",
+      "cloudflare": "Cloudflare Tüneli",
       "infrastructure": "Altyapı",
       "instance": "Kurulum"
     }

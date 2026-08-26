@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS "cf_accounts" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   CONSTRAINT "uq_cf_accounts_org_account" UNIQUE ("organization_id", "cf_account_id")
 );
-
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "cf_tunnels" (
   "id" text PRIMARY KEY,
   "organization_id" text NOT NULL REFERENCES "organization"("id") ON DELETE CASCADE,
@@ -34,9 +34,11 @@ CREATE TABLE IF NOT EXISTS "cf_tunnels" (
   "last_error" text,
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_cf_tunnels_server" ON "cf_tunnels" ("server_id");
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_cf_tunnels_org" ON "cf_tunnels" ("organization_id");
-
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "cf_tunnel_routes" (
   "id" text PRIMARY KEY,
   "tunnel_id" text NOT NULL REFERENCES "cf_tunnels"("id") ON DELETE CASCADE,
@@ -49,5 +51,7 @@ CREATE TABLE IF NOT EXISTS "cf_tunnel_routes" (
   "dns_record_id" text,
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_cf_tunnel_routes_hostname" ON "cf_tunnel_routes" ("hostname");
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_cf_tunnel_routes_tunnel" ON "cf_tunnel_routes" ("tunnel_id");

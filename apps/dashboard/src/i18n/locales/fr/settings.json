@@ -55,7 +55,7 @@
       "notifications": "Notifications",
       "credentials": "Identifiants",
       "cloud": "Cloud",
-      "cloudflare": "Cloudflare Tunnel",
+      "cloudflare": "Tunnel Cloudflare",
       "infrastructure": "Infrastructure",
       "instance": "Instance"
     }
