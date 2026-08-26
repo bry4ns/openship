@@ -169,7 +169,6 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
     const payload = serverId ? { serverId } : {};
     (async () => {
       try {
-        await api.post("system/cf-tunnels/ensure", payload);
         const ensured = await api.post<{ tunnel: { id: string } }>(
           "system/cf-tunnels/ensure",
           payload,

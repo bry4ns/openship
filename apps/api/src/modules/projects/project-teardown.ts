@@ -45,6 +45,7 @@ import { deleteWebhook as deleteGitHubWebhook } from "../github/github.service";
 import type { RequestContext } from "../../lib/request-context";
 import { env } from "../../config";
 import { cleanupWebmailInstall } from "../mail/webmail/webmail-install.service";
+import { detachCfRoutesByProject } from "../../lib/cf-route-cleanup";
 import { withProjectRuntimeLock } from "../../lib/project-runtime-lock";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -402,6 +403,13 @@ async function teardownProjectLocked(
       const orphanCandidates = runtimeCleanup.orphans;
 
       await stepWebmailTeardown(project, push);
+
+      // Cloudflare Tunnel routes (external state — DNS record + remote-managed
+      // ingress on Cloudflare's side). Best-effort and never gates the delete:
+      // an unreachable Cloudflare/node must not block removing the app, and the
+      // drift is visible in Settings. Runs before stepDeleteRow so the route
+      // rows (and the org scope they carry) are still readable.
+      await stepCfTunnelTeardown(project, push);
 
       // Best-effort: drop this project from each server's .openship manifest so a
       // later recover-from-server scan doesn't re-list it. Desktop-only inside;
@@ -1158,6 +1166,29 @@ async function stepWebmailTeardown(
     );
   } catch (err) {
     push({ step: "webmail", status: "failed", error: safeErrorMessage(err) });
+  }
+}
+
+/**
+ * Cloudflare Tunnel routes owned by this project (DNS CNAME + remote-managed
+ * ingress + connector). Best-effort and never gating: the whole point of the
+ * design is that a route removal survives an unreachable Cloudflare/node. Runs
+ * before `stepDeleteRow` so the `cf_tunnel_routes` rows (which the delete would
+ * otherwise orphan via `project_id ON DELETE SET NULL`) are still addressable.
+ */
+async function stepCfTunnelTeardown(
+  project: Project,
+  push: (s: TeardownStep) => void,
+): Promise<void> {
+  try {
+    const count = await detachCfRoutesByProject(project.id);
+    push(
+      count > 0
+        ? { step: "cf_tunnel", status: "ok", details: `detached ${count} tunnel route(s)` }
+        : { step: "cf_tunnel", status: "skipped", details: "no Cloudflare Tunnel routes" },
+    );
+  } catch (err) {
+    push({ step: "cf_tunnel", status: "failed", error: safeErrorMessage(err) });
   }
 }
 

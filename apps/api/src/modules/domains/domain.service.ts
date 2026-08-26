@@ -50,6 +50,7 @@ import { releaseManagedHostnames } from "../../lib/managed-edge-proxy";
 import { generateToken } from "../../lib/domain-token";
 import { routableWithoutOwnership } from "../../lib/domain-claims";
 import { untrackedSiteFor } from "../../lib/edge-orphans.service";
+import { detachCfRouteByHostname } from "../../lib/cf-route-cleanup";
 import { withLiveProjectRuntimeMutation } from "../../lib/project-runtime-lock";
 import type { UntrackedEdgeSite } from "@repo/core";
 import { publicEndpointHostname, resolveServicePublicEndpoints } from "../../lib/public-endpoints";
@@ -1198,6 +1199,12 @@ async function removeLiveDomain(ctx: RequestContext, domain: Domain, project: Pr
     });
     return;
   }
+
+  // A tunnel-published hostname (Cloudflare Tunnel edge/app route) keeps its DNS
+  // record + remote-managed ingress after the domain row is dropped — nothing
+  // served it anymore, but the name kept resolving into the tunnel. Detach it
+  // best-effort (Cloudflare unreachable must not block removing a domain).
+  await detachCfRouteByHostname(ctx.organizationId, domain.hostname).catch(() => {});
 
   await repos.domain.remove(domain.id);
 }
