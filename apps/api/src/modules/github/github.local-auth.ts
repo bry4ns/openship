@@ -113,17 +113,47 @@ async function readStoredDeviceToken(): Promise<string | null> {
  * Persist (or clear) the device-flow token. Encrypted at rest with the same key
  * as every other stored secret, and mirrored into the short cache so the sign-in
  * takes effect without waiting on a read-through.
+ *
+ * PER-USER FIX: When userId is provided, the token is stored in user_settings
+ * (per-user) instead of instance_settings (shared singleton). This ensures each
+ * user gets their own GitHub credential when multiple users share the same VPS.
+ * The instance_settings fallback is kept for backward compatibility.
  */
 export async function setStoredDeviceToken(
   token: string | null,
-  method: "device" | "token" = "device",
+  method: "device" | "token" | { userId: string } = "device",
 ): Promise<void> {
+  // Resolve userId and method from the overloaded parameter
+  let resolvedUserId: string | undefined;
+  let resolvedMethod: "device" | "token";
+  if (typeof method === "object" && "userId" in method) {
+    resolvedUserId = method.userId;
+    resolvedMethod = "device";
+  } else {
+    resolvedMethod = method;
+  }
+
+  // PER-USER: Store in user_settings when userId is available
+  if (resolvedUserId) {
+    try {
+      await repos.settings.update(resolvedUserId, {
+        cloneTokenEncrypted: token ? encrypt(token) : null,
+        cloneTokenSetAt: token ? new Date() : null,
+        cloneTokenAsDefault: !!token,
+      });
+    } catch (err) {
+      systemDebug("github", `per-user token store failed: ${safeErrorMessage(err)}`);
+    }
+  }
+
+  // Also keep instance_settings for backward compatibility (operator's own token)
+  // and as fallback for code paths that don't have userId context
   await repos.instanceSettings.upsert(
     token
       ? {
           ghDeviceTokenEncrypted: encrypt(token),
           ghDeviceTokenSetAt: new Date(),
-          ghDeviceTokenMethod: method,
+          ghDeviceTokenMethod: resolvedMethod,
         }
       : { ghDeviceTokenEncrypted: null, ghDeviceTokenSetAt: null, ghDeviceTokenMethod: null },
   );
@@ -648,7 +678,10 @@ export async function startDeviceFlow(userId: string): Promise<Verification> {
   // instance_settings.ghDeviceTokenEncrypted: a cache-only token expired after 8
   // hours into fallbacks that don't exist in a container, silently signing the
   // operator out of a login they completed in the browser.
-  return runDeviceFlow(userId, (token) => setStoredDeviceToken(token));
+  // PER-USER FIX: Pass userId so the token is stored per-user in user_settings
+  return runDeviceFlow(userId, (token) =>
+    setStoredDeviceToken(token, { userId }),
+  );
 }
 
 /**

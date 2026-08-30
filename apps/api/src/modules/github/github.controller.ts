@@ -587,7 +587,8 @@ export async function setInstanceToken(c: Context) {
   }
 
   const { setStoredDeviceToken } = await import("./github.local-auth");
-  await setStoredDeviceToken(token, "token");
+  // PER-USER FIX: Pass userId so the token is stored per-user
+  await setStoredDeviceToken(token, { userId: ctx.userId });
   // Sweep this user's cached GitHub state so /status and the importer see the new
   // identity on the NEXT read. Without it the connection only appeared after the
   // cached verdict aged out — i.e. "I added a token but New Project still fails".
