@@ -81,6 +81,7 @@ export type GitHubTokenSource =
   | "project"          // per-project clone_token_encrypted
   | "user-pat"         // user_settings clone_token_encrypted (cloneTokenAsDefault=true)
   | "gh-cli"           // local gh CLI token
+  | "org-member"       // per-user-per-org token from member table
   | "app-installation" // Openship App installation token (short-lived, scoped)
   | "user-oauth";      // Better-Auth GitHub OAuth (rare fallback)
 
@@ -243,6 +244,20 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
    * (an operator/instance/project credential), guard `resolve` with
    * `borrowableForOp(c)` — see that function for why. */
 
+  "org-member": {
+    kind: "org-member",
+    shippable: true,
+    resolve: async (c) => {
+      if (!borrowableForOp(c)) return null;
+      if (!c.userId || !c.organizationId) return null;
+      return readOrgMemberToken(c.userId, c.organizationId);
+    },
+    probe: async (c) => {
+      if (!c.userId || !c.organizationId) return false;
+      return Boolean(await readOrgMemberToken(c.userId, c.organizationId).catch(() => null));
+    },
+  },
+
   "app-installation": {
     kind: "app-installation",
     shippable: true, // short-lived + repo-scoped: safe to hand to a build worker
@@ -350,7 +365,7 @@ export const CHAINS: Record<GitHubPlatform, Record<GitHubPurpose, GitHubTokenSou
   selfhosted: {
     // gh-cli first: least configuration, and it reaches any repo the operator's
     // account can see, whereas the App needs an install on that owner.
-    local: ["gh-cli", "app-installation", "project", "user-pat", "user-oauth"],
+    local: ["gh-cli", "org-member", "app-installation", "project", "user-pat", "user-oauth"],
     // No gh-cli (not shippable) and deliberately no OAuth tail either.
     remote: ["project", "user-pat", "app-installation"],
   },
@@ -560,6 +575,42 @@ async function mayUseOperatorCliToken(
   // PER-USER FIX: Never lend the operator's shared CLI token to org members.
   // Each user should connect their own GitHub via device flow or OAuth.
   return false;
+}
+
+/**
+ * Read the org-scoped GitHub token for a user from the member table.
+ * Falls back to any other member's shared token in the same org.
+ * Used by the "org-member" credential source.
+ */
+async function readOrgMemberToken(userId: string, organizationId: string): Promise<string | null> {
+  if (!userId || !organizationId) return null;
+  try {
+    const { sql } = await import("drizzle-orm");
+    const { db } = await import("@repo/db");
+    // 1. Try current user's own token first
+    const own = await db.execute(
+      sql`SELECT github_token_encrypted FROM member
+          WHERE organization_id = ${organizationId} AND user_id = ${userId}
+          AND github_token_encrypted IS NOT NULL LIMIT 1`,
+    );
+    const ownRows = (own as any).rows ?? (Array.isArray(own) ? own : []);
+    if (ownRows[0]?.github_token_encrypted) {
+      return decrypt(ownRows[0].github_token_encrypted);
+    }
+    // 2. Fallback: any member's token in this org (shared)
+    const shared = await db.execute(
+      sql`SELECT github_token_encrypted FROM member
+          WHERE organization_id = ${organizationId}
+          AND github_token_encrypted IS NOT NULL LIMIT 1`,
+    );
+    const sharedRows = (shared as any).rows ?? (Array.isArray(shared) ? shared : []);
+    if (sharedRows[0]?.github_token_encrypted) {
+      return decrypt(sharedRows[0].github_token_encrypted);
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**

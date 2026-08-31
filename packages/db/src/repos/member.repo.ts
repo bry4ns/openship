@@ -63,5 +63,23 @@ export function createMemberRepo(db: typeof Db) {
     async isMember(organizationId: string, userId: string): Promise<boolean> {
       return !!(await this.find(organizationId, userId));
     },
+
+    /** Store (or clear) a per-user-per-org GitHub token. */
+    async setGithubToken(
+      organizationId: string,
+      userId: string,
+      encrypted: string | null,
+      setAt: Date | null,
+      method: string | null,
+    ): Promise<void> {
+      await db
+        .update(member)
+        .set({
+          githubTokenEncrypted: encrypted,
+          githubTokenSetAt: setAt,
+          githubTokenMethod: method,
+        })
+        .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)));
+    },
   };
 }

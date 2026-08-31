@@ -388,7 +388,7 @@ export async function connect(c: Context) {
       // stores a credential tokenFor refuses to use.
       const settingsService = await import("../settings/settings.service");
       await settingsService.setGhCliOperatorOptedIn(userId, true);
-      const verification = await startDeviceFlow(userId);
+      const verification = await startDeviceFlow(userId, ctx.organizationId);
       return c.json({
         connected: false,
         flow: "device_code" as const,
@@ -587,8 +587,7 @@ export async function setInstanceToken(c: Context) {
   }
 
   const { setStoredDeviceToken } = await import("./github.local-auth");
-  // PER-USER FIX: Pass userId so the token is stored per-user
-  await setStoredDeviceToken(token, { userId: ctx.userId });
+  await setStoredDeviceToken(token, { userId: ctx.userId, organizationId: ctx.organizationId });
   // Sweep this user's cached GitHub state so /status and the importer see the new
   // identity on the NEXT read. Without it the connection only appeared after the
   // cached verdict aged out — i.e. "I added a token but New Project still fails".
@@ -631,7 +630,7 @@ export async function disconnect(c: Context) {
   const rawSource = (body?.source ?? queryParam) as string | undefined;
   const source: "oauth" | "cli" | "all" =
     rawSource === "oauth" || rawSource === "cli" || rawSource === "all" ? rawSource : "all";
-  await githubAuth.disconnectUser(ctx.userId, source);
+  await githubAuth.disconnectUser(ctx.userId, source, ctx.organizationId);
   if (ctx.organizationId) {
     audit.recordAsync(auditContextFrom(c, ctx.organizationId, ctx.userId), {
       eventType: "github.disconnect",

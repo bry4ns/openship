@@ -57,6 +57,14 @@ export const member = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"), // "owner" | "admin" | "member"
     createdAt: timestamp("created_at").notNull().defaultNow(),
+
+    // ── Org-scoped GitHub credentials ────────────────────────────────────────
+    // Per-user-per-org GitHub token. The "org-member" credential source reads
+    // from here, giving each org its own GitHub identity per user (like Dokploy).
+    // Falls back to any member's token in the same org when the user has none.
+    githubTokenEncrypted: text("github_token_encrypted"),
+    githubTokenSetAt: timestamp("github_token_set_at"),
+    githubTokenMethod: text("github_token_method").$type<"device" | "token" | null>(),
   },
   (t) => [
     uniqueIndex("member_org_user_unique").on(t.organizationId, t.userId),

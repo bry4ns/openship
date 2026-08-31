@@ -114,26 +114,41 @@ async function readStoredDeviceToken(): Promise<string | null> {
  * as every other stored secret, and mirrored into the short cache so the sign-in
  * takes effect without waiting on a read-through.
  *
- * PER-USER FIX: When userId is provided, the token is stored in user_settings
- * (per-user) instead of instance_settings (shared singleton). This ensures each
- * user gets their own GitHub credential when multiple users share the same VPS.
- * The instance_settings fallback is kept for backward compatibility.
+ * ORG-SCOPED: When userId + organizationId are provided, the token is stored in
+ * the member table (per-user-per-org). This ensures each user gets their own
+ * GitHub credential per organization, like Dokploy.
+ *
+ * PER-USER fallback: When only userId is provided, stores in user_settings.
+ * INSTANCE fallback: When no userId, stores in instance_settings (backward compat).
  */
 export async function setStoredDeviceToken(
   token: string | null,
-  method: "device" | "token" | { userId: string } = "device",
+  method: "device" | "token" | { userId: string; organizationId?: string } = "device",
 ): Promise<void> {
-  // Resolve userId and method from the overloaded parameter
   let resolvedUserId: string | undefined;
+  let resolvedOrgId: string | undefined;
   let resolvedMethod: "device" | "token";
   if (typeof method === "object" && "userId" in method) {
     resolvedUserId = method.userId;
+    resolvedOrgId = method.organizationId;
     resolvedMethod = "device";
   } else {
     resolvedMethod = method;
   }
 
-  // PER-USER: Store in user_settings when userId is available
+  // ORG-SCOPED: Store in member table when both userId and organizationId are available
+  if (resolvedUserId && resolvedOrgId) {
+    try {
+      const enc = token ? encrypt(token) : null;
+      const ts = token ? new Date() : null;
+      await repos.member.setGithubToken(resolvedOrgId, resolvedUserId, enc, ts, resolvedMethod);
+    } catch (err) {
+      systemDebug("github", `org-member token store failed: ${safeErrorMessage(err)}`);
+    }
+    return;
+  }
+
+  // PER-USER: Store in user_settings when only userId is available
   if (resolvedUserId) {
     try {
       await repos.settings.update(resolvedUserId, {
@@ -144,10 +159,10 @@ export async function setStoredDeviceToken(
     } catch (err) {
       systemDebug("github", `per-user token store failed: ${safeErrorMessage(err)}`);
     }
+    return;
   }
 
-  // Also keep instance_settings for backward compatibility (operator's own token)
-  // and as fallback for code paths that don't have userId context
+  // INSTANCE fallback: operator's own token (backward compat)
   await repos.instanceSettings.upsert(
     token
       ? {
@@ -673,14 +688,9 @@ async function runDeviceFlow(
  * token is cached into the gh-cli token store so `getLocalGhToken()` picks it
  * up. Requires `GITHUB_CLIENT_ID`. No-op in cloud modes.
  */
-export async function startDeviceFlow(userId: string): Promise<Verification> {
-  // Persist, don't just cache. See setStoredDeviceToken / the schema note on
-  // instance_settings.ghDeviceTokenEncrypted: a cache-only token expired after 8
-  // hours into fallbacks that don't exist in a container, silently signing the
-  // operator out of a login they completed in the browser.
-  // PER-USER FIX: Pass userId so the token is stored per-user in user_settings
+export async function startDeviceFlow(userId: string, organizationId?: string): Promise<Verification> {
   return runDeviceFlow(userId, (token) =>
-    setStoredDeviceToken(token, { userId }),
+    setStoredDeviceToken(token, { userId, organizationId }),
   );
 }
 

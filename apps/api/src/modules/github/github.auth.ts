@@ -1306,6 +1306,7 @@ export async function resolveOauthHandoffUrl(
 export async function disconnectUser(
   userId: string,
   source: "oauth" | "cli" | "all" = "all",
+  organizationId?: string,
 ): Promise<void> {
   if (source === "oauth" || source === "all") {
     await repos.account.unlinkProvider(userId, "github");
@@ -1313,15 +1314,9 @@ export async function disconnectUser(
   if (source === "cli" || source === "all") {
     const { setGithubCliDisabled } = await import("../settings/settings.service");
     await setGithubCliDisabled(userId, true);
-    // Also drop the stored device-flow token. Without this, "Disconnect" only
-    // flipped the per-user opt-in while the credential itself stayed on the
-    // instance — so the UI said disconnected and clones kept working. Dynamic
-    // import to keep the SaaS bundle free of the gh module (see its CLOUD_MODE
-    // floor); a failure here must not abort the rest of the disconnect.
     try {
       const { setStoredDeviceToken } = await import("./github.local-auth");
-      // PER-USER FIX: Pass userId to clear the per-user token
-      await setStoredDeviceToken(null, { userId });
+      await setStoredDeviceToken(null, { userId, organizationId });
     } catch (err) {
       console.warn(`[GitHub] clearing stored device token failed: ${(err as Error).message}`);
     }
