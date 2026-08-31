@@ -62,6 +62,35 @@ function getSetCookieHeaders(headers: Headers): string[] {
 // ─── Status / Connection ─────────────────────────────────────────────────────
 
 /**
+ * GET /github/org-accounts — list all GitHub accounts connected by org members.
+ * Returns each member's GitHub profile (login, avatar) and connection status.
+ * Used by the Settings UI to show a Dokploy-style multi-account list.
+ */
+export async function getOrgAccounts(c: Context) {
+  const ctx = getRequestContext(c);
+  if (!ctx.organizationId) {
+    return c.json({ error: "Organization context required" }, 400);
+  }
+  const { repos } = await import("@repo/db");
+  const members = await repos.member.listByOrganizationWithGithub(ctx.organizationId);
+  return c.json({
+    accounts: members.map((m) => ({
+      userId: m.userId,
+      userName: m.user.name,
+      userEmail: m.user.email,
+      userImage: m.user.image,
+      role: m.role,
+      githubLogin: m.githubLogin,
+      githubAvatarUrl: m.githubAvatarUrl,
+      hasToken: !!m.githubTokenSetAt,
+      tokenSetAt: m.githubTokenSetAt,
+      tokenMethod: m.githubTokenMethod,
+      isCurrentUser: m.userId === ctx.userId,
+    })),
+  });
+}
+
+/**
  * GET /github/status — connection state for the current user, PLUS the App's
  * installation accounts. Wire shape: `{ state: GitHubConnectionState, accounts:
  * MappedAccount[] }`. This is the Settings card's data source — it probes the

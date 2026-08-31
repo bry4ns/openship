@@ -142,6 +142,27 @@ export async function setStoredDeviceToken(
       const enc = token ? encrypt(token) : null;
       const ts = token ? new Date() : null;
       await repos.member.setGithubToken(resolvedOrgId, resolvedUserId, enc, ts, resolvedMethod);
+      // Cache GitHub profile info from token verification
+      if (token) {
+        try {
+          const res = await fetch("https://api.github.com/user", {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+          });
+          if (res.ok) {
+            const user = (await res.json()) as { login: string; avatar_url: string };
+            await repos.member.setGithubProfile(resolvedOrgId, resolvedUserId, user.login, user.avatar_url);
+          }
+        } catch {
+          // Profile fetch failed, but token is still stored
+        }
+      } else {
+        // Clear profile when token is removed
+        await repos.member.setGithubProfile(resolvedOrgId, resolvedUserId, null, null);
+      }
     } catch (err) {
       systemDebug("github", `org-member token store failed: ${safeErrorMessage(err)}`);
     }

@@ -77,9 +77,51 @@ export function createMemberRepo(db: typeof Db) {
         .set({
           githubTokenEncrypted: encrypted,
           githubTokenSetAt: setAt,
-          githubTokenMethod: method,
+          githubTokenMethod: method as "device" | "token" | null,
         })
         .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)));
+    },
+
+    /** Update cached GitHub profile info for a member. */
+    async setGithubProfile(
+      organizationId: string,
+      userId: string,
+      login: string | null,
+      avatarUrl: string | null,
+    ): Promise<void> {
+      await db
+        .update(member)
+        .set({
+          githubLogin: login,
+          githubAvatarUrl: avatarUrl,
+        })
+        .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)));
+    },
+
+    /** List all members of an organization with their GitHub connection info. */
+    async listByOrganizationWithGithub(organizationId: string) {
+      return db
+        .select({
+          id: member.id,
+          organizationId: member.organizationId,
+          userId: member.userId,
+          role: member.role,
+          createdAt: member.createdAt,
+          githubTokenSetAt: member.githubTokenSetAt,
+          githubTokenMethod: member.githubTokenMethod,
+          githubLogin: member.githubLogin,
+          githubAvatarUrl: member.githubAvatarUrl,
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            image: user.image,
+          },
+        })
+        .from(member)
+        .innerJoin(user, eq(member.userId, user.id))
+        .where(eq(member.organizationId, organizationId))
+        .orderBy(asc(member.createdAt));
     },
   };
 }

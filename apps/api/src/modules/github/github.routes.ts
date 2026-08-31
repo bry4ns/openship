@@ -21,6 +21,7 @@ const r = secureRouter(new Hono(), {
 
 /* ─── Status / Connection ──────────────────────────────────────────────── */
 r.get("/status", { tag: "github:read", mcp: { description: "GitHub connection status for the org." } }, ctrl.getStatus);
+r.get("/org-accounts", { tag: "github:read", mcp: { description: "List all GitHub accounts connected by org members." } }, ctrl.getOrgAccounts);
 r.get("/local-status", { tag: "github:read", localOnly: true }, ctrl.getLocalStatus);
 r.get("/connect/poll", { tag: "github:read", localOnly: true }, ctrl.pollConnect);
 r.get("/home", { tag: "github:read", mcp: { description: "GitHub home: connection state, accounts, and repos in one call." } }, ctrl.getHome);

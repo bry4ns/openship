@@ -12,6 +12,8 @@ import {
   KeyRound,
   Loader2,
   ChevronDown,
+  Users,
+  User,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -32,6 +34,21 @@ const EMPTY_STATE: GitHubConnectionState = {
   sources: { openshipApp: { connected: false }, ghCli: { available: false } },
   primary: null,
 };
+
+/** Org member GitHub account info from /github/org-accounts */
+interface OrgAccount {
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userImage: string | null;
+  role: string;
+  githubLogin: string | null;
+  githubAvatarUrl: string | null;
+  hasToken: boolean;
+  tokenSetAt: string | null;
+  tokenMethod: "device" | "token" | null;
+  isCurrentUser: boolean;
+}
 
 /**
  * What the backend says is offerable here. Mirrors GitHubCapabilities in
@@ -72,6 +89,8 @@ export function GitHubConnection() {
   const [installUrl, setInstallUrl] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [loading, setLoading] = useState(true);
+  const [orgAccounts, setOrgAccounts] = useState<OrgAccount[]>([]);
+  const [orgAccountsLoading, setOrgAccountsLoading] = useState(false);
   // "Forward my git identity to build servers" (Settings → Clone credentials).
   // DESKTOP only — `relayConfigEligible` requires isDesktop. When on, the stored
   // identity (device sign-in or pasted token) is forwarded to remote build hosts
@@ -104,13 +123,26 @@ export function GitHubConnection() {
     }
   }, []);
 
+  const loadOrgAccounts = useCallback(async () => {
+    setOrgAccountsLoading(true);
+    try {
+      const res = await githubApi.getOrgAccounts();
+      setOrgAccounts(res?.accounts ?? []);
+    } catch {
+      setOrgAccounts([]);
+    } finally {
+      setOrgAccountsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadStatus();
+    void loadOrgAccounts();
     void settingsApi
       .get()
       .then((r) => setForwardGit(!!r.forwardGitToServer))
       .catch(() => {});
-  }, [loadStatus]);
+  }, [loadStatus, loadOrgAccounts]);
 
   // Connect/install opens a separate window (OAuth popup or the GitHub App
   // install tab). The connect call returns as soon as that window opens, so
@@ -142,15 +174,17 @@ export function GitHubConnection() {
       pendingConnectRef.current = true; // re-pull when the connect window closes
       await ctxConnect(source);
       await loadStatus(true);
+      await loadOrgAccounts();
     },
-    [ctxConnect, loadStatus],
+    [ctxConnect, loadStatus, loadOrgAccounts],
   );
   const disconnect = useCallback(
     async (source?: "oauth" | "cli" | "all") => {
       await ctxDisconnect(source);
       await loadStatus(true);
+      await loadOrgAccounts();
     },
-    [ctxDisconnect, loadStatus],
+    [ctxDisconnect, loadStatus, loadOrgAccounts],
   );
 
   // Self-hosted needs an active Openship Cloud connection to use the
@@ -254,6 +288,7 @@ export function GitHubConnection() {
   const ghProblem = state.sources.ghCli.problem;
 
   return (
+    <>
     <SettingsSection
       icon={Github}
       title={t.settings.github.title}
@@ -471,6 +506,37 @@ export function GitHubConnection() {
         </div>
       )}
     </SettingsSection>
+
+    {/* Org Members' GitHub Accounts (Dokploy-style) */}
+    {orgAccounts.length > 0 && (
+      <SettingsSection
+        icon={Users}
+        title="GitHub Accounts"
+        description={`${orgAccounts.filter((a) => a.hasToken).length} of ${orgAccounts.length} members connected`}
+        iconBg="bg-foreground/5"
+        iconColor="text-foreground"
+      >
+        {orgAccountsLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+            Loading accounts...
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {orgAccounts.map((account) => (
+              <OrgAccountRow
+                key={account.userId}
+                account={account}
+                onConnect={() => connect("cli")}
+                onDisconnect={() => disconnect("cli")}
+                connecting={connecting}
+              />
+            ))}
+          </div>
+        )}
+      </SettingsSection>
+    )}
+    </>
   );
 }
 
@@ -904,6 +970,113 @@ function TokenForm(props: { message: string; hint?: string; onSaved: () => void 
               {hint}
             </code>
           </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A row showing one org member's GitHub connection status.
+ * Dokploy-style: avatar, name, GitHub login, method, connected date.
+ */
+function OrgAccountRow(props: {
+  account: OrgAccount;
+  onConnect: () => void;
+  onDisconnect: () => void;
+  connecting: boolean;
+}) {
+  const { account, onConnect, onDisconnect, connecting } = props;
+  const { t } = useI18n();
+  const methodLabel =
+    account.tokenMethod === "token"
+      ? t.settings.github.methodToken
+      : account.tokenMethod === "device"
+        ? t.settings.github.methodDevice
+        : "";
+
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-muted/30 px-3.5 py-3">
+      <div className="flex items-center gap-3 min-w-0">
+        {/* User avatar (from GitHub if connected, else from Openship) */}
+        {account.githubAvatarUrl ? (
+          <img
+            src={account.githubAvatarUrl}
+            alt={account.githubLogin ?? account.userName}
+            className="size-8 shrink-0 rounded-full"
+          />
+        ) : account.userImage ? (
+          <img
+            src={account.userImage}
+            alt={account.userName}
+            className="size-8 shrink-0 rounded-full"
+          />
+        ) : (
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
+            <User className="size-4 text-muted-foreground" />
+          </span>
+        )}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-medium text-foreground">
+              {account.userName}
+            </p>
+            {account.isCurrentUser && (
+              <span className="shrink-0 rounded-full bg-success-bg px-2 py-0.5 text-[10.5px] font-medium text-success">
+                You
+              </span>
+            )}
+            {account.role === "owner" && (
+              <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10.5px] font-medium text-primary">
+                Owner
+              </span>
+            )}
+          </div>
+          {account.githubLogin ? (
+            <div className="flex items-center gap-1.5">
+              <Github className="size-3 text-muted-foreground" />
+              <p className="truncate text-xs text-muted-foreground">
+                @{account.githubLogin}
+              </p>
+              {methodLabel && (
+                <span className="text-[10px] text-muted-foreground/70">
+                  ({methodLabel})
+                </span>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground/60">
+              Not connected
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {account.githubLogin && account.tokenSetAt && (
+          <span className="text-[10px] text-muted-foreground/60">
+            {new Date(account.tokenSetAt).toLocaleDateString()}
+          </span>
+        )}
+        {account.isCurrentUser && (
+          account.hasToken ? (
+            <button
+              onClick={onDisconnect}
+              disabled={connecting}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-danger transition-colors hover:bg-danger-bg disabled:opacity-50"
+            >
+              <Unplug className="size-3" />
+              Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={onConnect}
+              disabled={connecting}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-2.5 py-1 text-xs font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {connecting ? <Loader2 className="size-3 animate-spin" /> : <Github className="size-3" />}
+              Connect
+            </button>
+          )
         )}
       </div>
     </div>

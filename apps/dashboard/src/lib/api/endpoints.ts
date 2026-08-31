@@ -231,6 +231,7 @@ export const endpoints = {
     repoTree: (owner: string, repo: string) =>
       `github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tree`,
     status: "github/status",
+    orgAccounts: "github/org-accounts",
     connect: "github/connect",
     connectRedirect: "github/connect/redirect",
     connectPoll: "github/connect/poll",

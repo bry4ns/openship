@@ -106,6 +106,9 @@ export const githubApi = {
   /** Check GitHub connection status (live, no dedup). */
   getStatus: () => api.get<any>(endpoints.github.status),
 
+  /** List all GitHub accounts connected by org members. */
+  getOrgAccounts: () => api.get<any>(endpoints.github.orgAccounts),
+
   /**
    * GitHub connection status, de-duplicated across CONCURRENT callers (Settings
    * card + library App badge) but always LIVE — no TTL cache. Pass `force` after

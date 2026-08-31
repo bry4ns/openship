@@ -65,6 +65,9 @@ export const member = pgTable(
     githubTokenEncrypted: text("github_token_encrypted"),
     githubTokenSetAt: timestamp("github_token_set_at"),
     githubTokenMethod: text("github_token_method").$type<"device" | "token" | null>(),
+    // Cached GitHub profile from token verification (avoids repeated API calls)
+    githubLogin: text("github_login"),
+    githubAvatarUrl: text("github_avatar_url"),
   },
   (t) => [
     uniqueIndex("member_org_user_unique").on(t.organizationId, t.userId),
