@@ -43,8 +43,10 @@ export const projectGroup = pgTable("project_app", {
   /** URL-safe slug shared by the app */
   slug: text("slug").notNull(),
 
-  /** Shared source identity */
-  gitProvider: text("git_provider").default("github"),
+   /** Shared source identity */
+   /** Selected Git account/provider for this organization. */
+   gitProviderId: text("git_provider_id"),
+   gitProvider: text("git_provider").default("github"),
   gitOwner: text("git_owner"),
   gitRepo: text("git_repo"),
   gitUrl: text("git_url"),
@@ -108,7 +110,7 @@ export const project = pgTable(
     /** Absolute path on disk for locally-imported projects */
     localPath: text("local_path"),
 
-    /* ── Git source ─────────────────────────────────────────────────────── */
+     /* ── Git source ─────────────────────────────────────────────────────── */
     /**
      * Source discriminator: "github" | "gitlab" | "bitbucket" | "local" | "upload" | "release".
      * (Free-text; canonical set = SOURCE_PROVIDERS in @repo/core.)
@@ -121,7 +123,9 @@ export const project = pgTable(
      *                Redeploys track a VERSION, not a commit. Config lives in
      *                `releaseSource`.
      */
-    gitProvider: text("git_provider").default("github"),
+     /** Selected Git account/provider for this organization. */
+     gitProviderId: text("git_provider_id"),
+     gitProvider: text("git_provider").default("github"),
     /** Owner/org on the git provider */
     gitOwner: text("git_owner"),
     /** Repo name on the git provider */

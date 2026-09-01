@@ -862,8 +862,9 @@ async function executeBuildAndDeploy(project: Project, dep: Deployment, buildSes
             organizationId: dep.organizationId,
             label: "build:resolve-git-token",
           }),
-          projectId: project.id,
-          owner: project.gitOwner ?? undefined,
+           projectId: project.id,
+           providerId: project.gitProviderId ?? undefined,
+           owner: project.gitOwner ?? undefined,
           repo: project.gitRepo ?? undefined,
           buildStrategy: clonePlan.cloneCredentialPurpose,
           // Only meaningful for an on-server clone — lets a per-server GitHub auth

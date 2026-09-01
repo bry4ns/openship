@@ -254,6 +254,7 @@ export const projectsApi = {
     defaultRollbackStrategy?: "git" | "snapshot";
     slug?: string;
     gitOwner?: string;
+    gitProviderId?: string;
     /** Source discriminator; "upload" for browser folder-upload projects. */
     gitProvider?: string;
     gitRepo?: string;
@@ -612,7 +613,7 @@ export const projectsApi = {
   /** Link a GitHub repo to an existing project + register webhook */
   linkRepo: (
     id: string | number,
-    body: { owner: string; repo: string; branch?: string; installationId?: number },
+    body: { owner: string; repo: string; branch?: string; installationId?: number; providerId?: string },
   ) => api.post<any>(endpoints.projects.gitLink(id), body),
 
   /** Atomically transition a single-app project to a tracked prebuilt image. */

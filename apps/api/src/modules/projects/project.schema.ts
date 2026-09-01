@@ -355,6 +355,8 @@ export const CreateProjectBody = Type.Object({
   // Local source
   localPath: Type.Optional(Type.String({ maxLength: 1000 })),
   // Git source
+  /** Exact org-scoped GitHub account/provider used for this project. */
+  gitProviderId: Type.Optional(Type.String({ maxLength: 100 })),
   gitProvider: Type.Optional(Type.String({ default: "github" })),
   gitOwner: Type.Optional(Type.String({ maxLength: 100 })),
   gitRepo: Type.Optional(Type.String({ maxLength: 100 })),
@@ -609,6 +611,7 @@ export const UpdateResourcesBody = Type.Object({
 export const LinkRepoBody = Type.Object({
   owner: Type.String({ minLength: 1, description: "GitHub repo owner." }),
   repo: Type.String({ minLength: 1, description: "GitHub repo name." }),
+  providerId: Type.Optional(Type.String({ maxLength: 100, description: "Selected org-scoped Git Provider." })),
   branch: Type.Optional(
     Type.String({ description: "Deploy branch (defaults to the repo default)." }),
   ),

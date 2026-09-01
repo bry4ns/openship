@@ -68,8 +68,9 @@ const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml
 export type Source =
   | {
       source: "github";
-      owner: string;
-      repo: string;
+       owner: string;
+       repo: string;
+       providerId?: string;
       branch?: string;
       /** Request-scoped context — required when source === "github" so
        *  getRepository can resolve org-scoped install + cache keys.
@@ -744,7 +745,8 @@ export async function resolveProjectInfo(input: Source): Promise<ProjectInfo> {
     if (!input.ctx) {
       throw new Error("resolveProjectInfo(github): ctx is required");
     }
-    return resolveFromGitHub(input.ctx, input.owner, input.repo, input.branch, {
+    const scopedCtx = input.providerId ? { ...input.ctx, gitProviderId: input.providerId } : input.ctx;
+    return resolveFromGitHub(scopedCtx, input.owner, input.repo, input.branch, {
       composePath: input.composePath,
       env: input.env,
     });

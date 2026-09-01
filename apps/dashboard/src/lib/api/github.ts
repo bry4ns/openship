@@ -89,8 +89,8 @@ export const githubApi = {
     ),
 
   /** Repos for a specific GitHub org */
-  getOrgRepos: (owner: string) =>
-    api.get<any>(endpoints.github.orgRepos(owner)),
+  getOrgRepos: (owner: string, providerId?: string) =>
+    api.get<any>(endpoints.github.orgRepos(owner), { params: providerId ? { providerId } : undefined }),
 
   /** Repos for a specific GitHub user. Server-paginated: pass page/perPage/
    *  search/visibility/sort and read the authoritative `count`/`total` back
@@ -102,9 +102,9 @@ export const githubApi = {
 
   /** List a repo's branches (used before a project exists — e.g. the migration
    *  wizard's link-repo step, which can't use projectsApi.getBranches). */
-  listBranches: (owner: string, repo: string) =>
+  listBranches: (owner: string, repo: string, providerId?: string) =>
     api.get<{ data: Array<{ name: string }> }>(
-      endpoints.github.repoBranches(owner, repo),
+      endpoints.github.repoBranches(owner, repo) + (providerId ? `?providerId=${encodeURIComponent(providerId)}` : ""),
     ),
 
   /**

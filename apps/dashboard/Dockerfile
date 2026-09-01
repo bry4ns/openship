@@ -13,7 +13,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # build time (NEXT_PUBLIC_* is inlined) so the dashboard never calls a hardcoded
 # API host — works behind any reverse proxy / on a remote host.
 ENV NEXT_PUBLIC_API_PROXY=true
-RUN bun install && cd apps/dashboard && bun run build
+RUN bun install --ignore-scripts && cd apps/dashboard && bun run build
 
 # ─── Production stage ──────────────────────────────────
 FROM node:22-alpine AS runner

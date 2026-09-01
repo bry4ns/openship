@@ -253,7 +253,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
 
       // 1. If explicit providerId was requested (e.g. from Deploy Wizard), resolve it
       if (c.tokenCtx.providerId) {
-        const p = await repos.gitProvider.findAccessible(
+        const p = await repos.gitProvider?.findAccessible(
           c.tokenCtx.providerId,
           c.organizationId,
           c.userId || "",
@@ -266,7 +266,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
 
       // 2. Otherwise find accessible providers for the user in this org
       if (c.userId) {
-        const list = await repos.gitProvider.listForUser(c.organizationId, c.userId);
+        const list = (await repos.gitProvider?.listForUser(c.organizationId, c.userId)) ?? [];
         // Current user's own token takes precedence
         const own = list.find((p) => p.userId === c.userId);
         if (own?.tokenEncrypted) {
@@ -284,7 +284,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
       if (!c.organizationId) return false;
       const { repos } = await import("@repo/db");
       if (c.tokenCtx.providerId) {
-        const p = await repos.gitProvider.findAccessible(
+        const p = await repos.gitProvider?.findAccessible(
           c.tokenCtx.providerId,
           c.organizationId,
           c.userId || "",
@@ -292,7 +292,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
         return Boolean(p);
       }
       if (c.userId) {
-        const list = await repos.gitProvider.listForUser(c.organizationId, c.userId);
+        const list = (await repos.gitProvider?.listForUser(c.organizationId, c.userId)) ?? [];
         return list.length > 0;
       }
       return false;

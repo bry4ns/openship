@@ -841,6 +841,20 @@
       "when": 1788906107329,
       "tag": "0119_git_providers",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1788992507330,
+      "tag": "0120_project_git_provider_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1788992507331,
+      "tag": "0121_member_git_provider_access",
+      "breakpoints": true
     }
   ]
 }

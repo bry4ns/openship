@@ -580,8 +580,9 @@ async function ensureProjectApp(data: TCreateProjectBody, slug: string, organiza
     organizationId,
     name: data.name,
     slug,
-    gitProvider: source.gitProvider,
-    gitOwner: source.gitOwner,
+     gitProvider: source.gitProvider,
+     gitProviderId: data.gitProviderId,
+     gitOwner: source.gitOwner,
     gitRepo: source.gitRepo,
     gitUrl: source.gitUrl,
     installationId: data.installationId,
@@ -670,13 +671,14 @@ function buildProductionProjectInput(
     environmentSlug: "production",
     environmentType: "production",
     localPath: source.safeLocalPath,
-    gitProvider: source.gitProvider,
-    gitOwner: source.gitOwner,
+     gitProvider: source.gitProvider,
+     gitProviderId: data.gitProviderId,
+     gitOwner: source.gitOwner,
     gitRepo: source.gitRepo,
     gitBranch: data.gitBranch ?? "main",
     gitUrl: source.gitUrl,
     releaseSource: source.releaseSource,
-    installationId: data.installationId,
+     installationId: data.installationId,
     autoDeploy: !!(env.CLOUD_MODE && source.gitOwner && source.gitRepo),
     framework: normalizeFramework(data.framework),
     packageManager: data.packageManager ?? "npm",
@@ -1020,13 +1022,24 @@ export type LinkProjectRepoOutcome =
 export async function linkProjectRepo(
   ctx: RequestContext,
   projectId: string,
-  input: { owner: string; repo: string; branch?: string; installationId?: number },
+  input: { owner: string; repo: string; branch?: string; installationId?: number; providerId?: string },
 ): Promise<LinkProjectRepoOutcome> {
   const { organizationId } = ctx;
   const owner = input.owner?.trim();
   const repo = input.repo?.trim();
   if (!owner || !repo)
     return { ok: false, code: "invalid", message: "owner and repo are required" };
+
+  if (input.providerId) {
+    const provider = await repos.gitProvider.findAccessible(
+      input.providerId,
+      organizationId,
+      ctx.userId,
+    );
+    if (!provider) {
+      return { ok: false, code: "invalid", message: "Git Provider is not accessible" };
+    }
+  }
 
   const result = await withLiveProjectRuntimeMutation(
     projectId,
@@ -1049,6 +1062,7 @@ export async function linkProjectRepo(
         : isReleaseProvider(project!.gitProvider);
 
       const gitFields: Record<string, unknown> = {
+        gitProviderId: input.providerId ?? null,
         gitProvider: "github",
         gitOwner: owner,
         gitRepo: repo,
@@ -1100,6 +1114,7 @@ export async function linkProjectRepo(
 
       if (project!.groupId) {
         const sharedGitFields = {
+          gitProviderId: input.providerId ?? null,
           gitProvider: "github",
           gitOwner: owner,
           gitRepo: repo,
@@ -1452,14 +1467,17 @@ export async function ensureProject(data: EnsureProjectBody, organizationId: str
     if (data.gitBranch !== undefined && (data.projectId || !project.gitBranch)) {
       update.gitBranch = data.gitBranch;
     }
-    if (data.localPath !== undefined) {
+     if (data.localPath !== undefined) {
       const safePath = data.localPath && !env.CLOUD_MODE ? data.localPath : null;
       update.localPath = safePath;
       if (safePath) {
         update.gitProvider = "local";
         update.gitUrl = null;
-      }
-    }
+       }
+     }
+     if (data.gitProviderId !== undefined && !data.localPath) {
+       update.gitProviderId = data.gitProviderId;
+     }
     if (data.rollbackWindow !== undefined) {
       update.rollbackWindow =
         data.rollbackWindow === null ? null : normalizeRollbackWindow(data.rollbackWindow);
@@ -1468,9 +1486,13 @@ export async function ensureProject(data: EnsureProjectBody, organizationId: str
       update.cloudArchiveStrategy = data.cloudArchiveStrategy;
     }
 
-    if (Object.keys(update).length > 0) {
-      await repos.project.update(project.id, update);
-    }
+     if (Object.keys(update).length > 0) {
+       await repos.project.update(project.id, update);
+     }
+
+     if (data.gitProviderId !== undefined && project.groupId && !data.localPath) {
+       await repos.projectGroup.update(project.groupId, { gitProviderId: data.gitProviderId });
+     }
 
     // Reconcile routes AFTER persisting the project (best-effort) so a route-sync
     // failure can't discard the field edits we just committed; the next deploy
@@ -1962,7 +1984,8 @@ export async function createProjectEnvironment(
     gitRepo: app?.gitRepo ?? base.gitRepo,
     gitBranch,
     gitUrl: app?.gitUrl ?? base.gitUrl,
-    installationId: app?.installationId ?? base.installationId,
+     installationId: app?.installationId ?? base.installationId,
+     gitProviderId: app?.gitProviderId ?? base.gitProviderId,
     releaseSource: base.releaseSource,
     framework: base.framework,
     packageManager: base.packageManager,

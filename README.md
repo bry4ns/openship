@@ -179,6 +179,14 @@ Point Openship at a source — a **GitHub repo**, a **local folder**, or a **pre
 
 Databases, domains, SSL, CDN, mail, and backups are managed from the same place. (Push-to-deploy and public domains need an always-on server or Cloud — a desktop/loopback instance has no public endpoint to receive webhooks.)
 
+### GitHub accounts by organization
+
+Self-hosted Openship uses organization-scoped GitHub credentials for team deployments. Each member connects one personal GitHub account to the active Openship organization. An organization can therefore have multiple GitHub accounts, while every project remains pinned to the specific account selected when its repository is linked.
+
+The account owner can keep the credential private or share it with the organization. Administrators can grant access to a shared account for selected members. Repository listing, branches, stack detection, file access, cloning, builds, redeploys, and GitHub webhooks all resolve through the project’s selected account instead of a server-wide token.
+
+This keeps organizations isolated: a member can only use GitHub accounts and repositories allowed in the active organization. For example, a deployment in `perhost` cannot use a credential connected only to `biorvi`, even when both projects reference the same GitHub repository name. Remote deployments still run on the server configured for the project; the GitHub account only supplies repository access.
+
 ---
 
 ## Interfaces

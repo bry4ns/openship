@@ -350,6 +350,7 @@ export async function prepare(c: Context) {
     source?: "github" | "local";
     owner?: string;
     repo?: string;
+    providerId?: string;
     branch?: string;
     path?: string;
     composePath?: string;
@@ -374,6 +375,7 @@ export async function prepare(c: Context) {
         source: "github",
         owner: body.owner,
         repo: body.repo,
+        providerId: body.providerId,
         branch: body.branch,
         ctx,
         composePath,
