@@ -51,6 +51,7 @@ const SCHEME_BY_KEY: Record<string, { table: AnyTable; scheme: SecretScheme }> =
   "server_github_auth.tokenEncrypted": { table: schema.serverGithubAuth, scheme: "scalar" },
   "server_github_auth.serverKeyPrivateEncrypted": { table: schema.serverGithubAuth, scheme: "scalar" },
   "github_deploy_key.privateKeyEncrypted": { table: schema.githubDeployKey, scheme: "scalar" },
+  "git_providers.tokenEncrypted": { table: schema.gitProviders, scheme: "scalar" },
   // Plaintext at rest (the Better Auth plugin owns the column) — "plaintext" moves it
   // into the sealed bundle verbatim rather than pretending it was encrypted.
   "oauth_application.clientSecret": { table: schema.oauthApplication, scheme: "plaintext" },
