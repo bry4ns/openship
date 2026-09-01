@@ -61,6 +61,18 @@ export interface RepoTreeEntry {
   type: "file" | "dir";
 }
 
+export interface GitProviderItem {
+  id: string;
+  name: string;
+  providerType: string;
+  githubLogin: string | null;
+  githubAvatarUrl: string | null;
+  tokenMethod: string;
+  sharedWithOrg: boolean;
+  isCurrentUser: boolean;
+  createdAt: string;
+}
+
 export const githubApi = {
   /** Dashboard home - user info, orgs, recent repos */
   getUserHome: () => api.get<any>(endpoints.github.userHome),
