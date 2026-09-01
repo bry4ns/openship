@@ -8,7 +8,7 @@
 
 import { repos } from "@repo/db";
 import { decrypt } from "../../../lib/encryption";
-import { ghFetchSoft } from "../github.local-auth";
+import { ghFetchSoft } from "../github.http";
 import { mapRepositories } from "./mappers";
 import type { RequestContext } from "../../../lib/request-context";
 import type { GhCliStatus } from "./gh-cli-source";
