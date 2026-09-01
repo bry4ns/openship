@@ -378,7 +378,9 @@ export async function connect(c: Context) {
         flow: "token" as const,
         command: "gh auth login",
         message:
-          "Paste a GitHub token to connect this instance. " +
+          (ctx.organizationId
+            ? "Paste a GitHub token to connect your account to the active organization. "
+            : "Paste a GitHub token to connect this instance. ") +
           "Needs the `repo` scope (add `read:org` to see organization repos).",
       });
     }

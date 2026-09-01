@@ -478,6 +478,12 @@ export function GitHubConnection() {
             )}
           </div>
         </div>
+      ) : cliAction ? (
+        <DeviceFlowPanel
+          cliAction={cliAction!}
+          onRefresh={() => void loadStatus(true)}
+          isDesktop={isDesktop}
+        />
       ) : (
         /* Nothing connected. Signing in with GitHub is the default because it
            needs no app registration, no Openship account and no shell on the box;
@@ -524,7 +530,13 @@ export function GitHubConnection() {
       iconBg="bg-foreground/5"
       iconColor="text-foreground"
     >
-      {providersLoading ? (
+      {cliAction ? (
+        <DeviceFlowPanel
+          cliAction={cliAction!}
+          onRefresh={() => void loadStatus(true)}
+          isDesktop={isDesktop}
+        />
+      ) : providersLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
           <Loader2 className="size-4 animate-spin" />
           Loading Git accounts...
