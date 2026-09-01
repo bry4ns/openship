@@ -1320,7 +1320,8 @@ export async function disconnectUser(
     // floor); a failure here must not abort the rest of the disconnect.
     try {
       const { setStoredDeviceToken } = await import("./github.local-auth");
-      await setStoredDeviceToken(null);
+      // PER-USER FIX: Pass userId to clear the per-user token
+      await setStoredDeviceToken(null, { userId });
     } catch (err) {
       console.warn(`[GitHub] clearing stored device token failed: ${(err as Error).message}`);
     }

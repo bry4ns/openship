@@ -601,8 +601,9 @@ async function isCliOperatorAllowed(userId: string): Promise<boolean> {
  *     worker is a real security hole (HIGH #7).
  *   - no org context (zero-auth desktop / internal jobs) → YES. The
  *     auto-provisioned local user IS the operator.
- *   - org context → only if the operator opted in (`isCliOperatorAllowed`),
- *     so a non-operator member can't borrow the operator's token.
+ *   - org context → NEVER for non-operators. The operator's token must
+ *     not leak to other users sharing this VPS. Each user should have
+ *     their own GitHub credential (device flow or OAuth).
  *
  * NOTE: this gate is for CLONE/BUILD token resolution only. Plain repo/org
  * LISTING is a local read and uses the gh token DIRECTLY via the
@@ -616,7 +617,9 @@ export async function mayUseOperatorCliToken(
 ): Promise<boolean> {
   if (purpose === "remote") return false;
   if (!organizationId) return true;
-  return isCliOperatorAllowed(userId);
+  // PER-USER FIX: Never lend the operator's shared CLI token to org members.
+  // Each user should connect their own GitHub via device flow or OAuth.
+  return false;
 }
 
 /**
