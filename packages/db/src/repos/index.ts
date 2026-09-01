@@ -274,6 +274,7 @@ import { createUserRepo } from "./user.repo";
 import { createSessionRepo } from "./session.repo";
 import { createAccountRepo } from "./account.repo";
 import { createGitInstallationRepo } from "./git-installation.repo";
+import { createGitProviderRepo } from "./git-provider.repo";
 import { createGithubInstallStateRepo } from "./github-install-state.repo";
 import { createProjectGroupRepo } from "./project-group.repo";
 import { createProjectRepo } from "./project.repo";

@@ -249,7 +249,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
       if (!borrowableForOp(c)) return null;
       if (!c.organizationId) return null;
       const { repos } = await import("@repo/db");
-      const { decrypt } = await import("../../lib/crypto");
+      const { decrypt } = await import("../../lib/encryption");
 
       // 1. If explicit providerId was requested (e.g. from Deploy Wizard), resolve it
       if (c.tokenCtx.providerId) {

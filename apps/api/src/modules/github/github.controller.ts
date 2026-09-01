@@ -590,7 +590,7 @@ export async function setInstanceToken(c: Context) {
   if (ctx.organizationId) {
     try {
       const { repos } = await import("@repo/db");
-      const { encrypt } = await import("../../lib/crypto");
+      const { encrypt } = await import("../../lib/encryption");
       let avatarUrl: string | null = null;
       try {
         const uRes = await fetch("https://api.github.com/user", {
