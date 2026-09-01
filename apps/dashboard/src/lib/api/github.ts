@@ -3,6 +3,7 @@ import { endpoints } from "./endpoints";
 
 /** Query for the server-paginated repo list (all optional). */
 export interface RepoListQuery {
+  providerId?: string;
   page?: number;
   perPage?: number;
   search?: string;
@@ -105,6 +106,21 @@ export const githubApi = {
 
   /** Check GitHub connection status (live, no dedup). */
   getStatus: () => api.get<any>(endpoints.github.status),
+
+  /** List Dokploy-style Git Providers for the current organization */
+  getProviders: () =>
+    api.get<{ providers: GitProviderItem[] }>(endpoints.github.providers),
+
+  /** Toggle whether a Git Provider is shared with other org members */
+  toggleShareProvider: (id: string, shared: boolean) =>
+    api.patch<{ ok: boolean; sharedWithOrg: boolean }>(
+      endpoints.github.toggleShareProvider(id),
+      { shared },
+    ),
+
+  /** Disconnect/remove a Git Provider */
+  deleteProvider: (id: string) =>
+    api.delete<{ ok: boolean }>(endpoints.github.deleteProvider(id)),
 
   /**
    * GitHub connection status, de-duplicated across CONCURRENT callers (Settings

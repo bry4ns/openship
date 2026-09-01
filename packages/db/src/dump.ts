@@ -321,6 +321,15 @@ const TABLES: ReadonlyArray<TableSpec> = [
     hasOrganizationId: false,
   },
   {
+    sqlName: "git_providers",
+    table: schema.gitProviders,
+    scopes: [
+      { in: "instance", via: "all-rows" },
+      { in: "organization", via: "organizationId" },
+    ],
+    hasOrganizationId: true,
+  },
+  {
     sqlName: "cloud_webhook_binding",
     table: schema.cloudWebhookBinding,
     scopes: [{ in: "instance", via: "all-rows" }],
@@ -911,6 +920,7 @@ export interface EncryptedColumnSpec {
 export const ENCRYPTED_COLUMNS: ReadonlyArray<EncryptedColumnSpec> = [
   { table: "user_settings", column: "cloudSessionToken" },
   { table: "user_settings", column: "cloneTokenEncrypted" },
+  { table: "git_providers", column: "tokenEncrypted" },
   { table: "project", column: "cloneTokenEncrypted" },
   { table: "project", column: "webhookSecret" },
   { table: "cloud_webhook_binding", column: "webhookSecret" },

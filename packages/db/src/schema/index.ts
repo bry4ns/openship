@@ -67,3 +67,4 @@ export {
 export { customAppTemplate } from "./custom-app-template";
 export { dnsCredential } from "./dns-credential";
 export { credential } from "./credential";
+export { gitProviders, type GitProvider, type NewGitProvider } from "./git-provider";

@@ -7,6 +7,12 @@ export {
   type NewGitInstallation,
 } from "./git-installation.repo";
 export {
+  createGitProviderRepo,
+  type GitProvider,
+  type NewGitProvider,
+  type CreateGitProviderInput,
+} from "./git-provider.repo";
+export {
   createGithubInstallStateRepo,
   type GithubInstallState,
   type NewGithubInstallState,
@@ -352,6 +358,7 @@ export const repos = {
   session: createSessionRepo(db),
   account: createAccountRepo(db),
   gitInstallation: createGitInstallationRepo(db),
+  gitProvider: createGitProviderRepo(db),
   githubInstallState: createGithubInstallStateRepo(db),
   projectGroup: createProjectGroupRepo(db),
   project: createProjectRepo(db),

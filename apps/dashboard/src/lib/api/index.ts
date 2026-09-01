@@ -64,7 +64,7 @@ export {
 export { tokensApi } from "./tokens";
 export type { AccessToken, CreatedAccessToken, McpClient, McpClientDetail } from "./tokens";
 export { githubApi } from "./github";
-export type { RepoTreeEntry } from "./github";
+export type { RepoTreeEntry, GitProviderItem } from "./github";
 export { iconsApi } from "./icons";
 export { imagesApi } from "./images";
 export type { ImageCatalogEntry, ListImagesResponse } from "./images";

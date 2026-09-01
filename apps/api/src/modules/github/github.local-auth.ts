@@ -643,12 +643,46 @@ async function runDeviceFlow(
  * token is cached into the gh-cli token store so `getLocalGhToken()` picks it
  * up. Requires `GITHUB_CLIENT_ID`. No-op in cloud modes.
  */
-export async function startDeviceFlow(userId: string): Promise<Verification> {
-  // Persist, don't just cache. See setStoredDeviceToken / the schema note on
-  // instance_settings.ghDeviceTokenEncrypted: a cache-only token expired after 8
-  // hours into fallbacks that don't exist in a container, silently signing the
-  // operator out of a login they completed in the browser.
-  return runDeviceFlow(userId, (token) => setStoredDeviceToken(token));
+export async function startDeviceFlow(
+  userId: string,
+  organizationId?: string,
+): Promise<Verification> {
+  const flowKey = organizationId ? `${userId}:${organizationId}` : userId;
+  return runDeviceFlow(flowKey, async (token) => {
+    if (organizationId) {
+      try {
+        let login = "GitHub Account";
+        let avatarUrl: string | null = null;
+        const res = await fetch("https://api.github.com/user", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        });
+        if (res.ok) {
+          const u = (await res.json()) as { login: string; avatar_url: string };
+          login = u.login;
+          avatarUrl = u.avatar_url;
+        }
+        await repos.gitProvider.upsert({
+          organizationId,
+          userId,
+          name: `@${login}`,
+          providerType: "github",
+          githubLogin: login,
+          githubAvatarUrl: avatarUrl,
+          tokenEncrypted: encrypt(token),
+          tokenMethod: "device",
+          sharedWithOrg: false,
+        });
+      } catch (err) {
+        systemDebug("github", `failed to save gitProvider from device flow: ${safeErrorMessage(err)}`);
+      }
+      return;
+    }
+    await setStoredDeviceToken(token);
+  });
 }
 
 /**
@@ -668,12 +702,15 @@ export async function startServerDeviceFlow(
  * Check the status of an active device flow for a user.
  * Returns null if no flow exists.
  */
-export function getDeviceFlowStatus(userId: string): {
+export function getDeviceFlowStatus(flowKey: string): {
   status: "waiting" | "complete" | "error";
   token?: string;
   error?: string;
 } | null {
-  const state = activeFlows.get(userId);
+  let state = activeFlows.get(flowKey);
+  if (!state && flowKey.includes(":")) {
+    state = activeFlows.get(flowKey.split(":")[0]);
+  }
   if (!state || state.status === "pending") return null;
 
   const result: { status: "waiting" | "complete" | "error"; token?: string; error?: string } = {
@@ -682,12 +719,11 @@ export function getDeviceFlowStatus(userId: string): {
 
   if (state.status === "complete" && state.token) {
     result.token = state.token;
-    // Clean up after the token has been retrieved
-    activeFlows.delete(userId);
+    activeFlows.delete(flowKey);
   }
   if (state.status === "error") {
     result.error = state.error ?? "Unknown error";
-    activeFlows.delete(userId);
+    activeFlows.delete(flowKey);
   }
 
   return result;
@@ -696,6 +732,9 @@ export function getDeviceFlowStatus(userId: string): {
 /**
  * Cancel an active device flow for a user.
  */
-export function cancelDeviceFlow(userId: string): void {
-  activeFlows.delete(userId);
+export function cancelDeviceFlow(flowKey: string): void {
+  activeFlows.delete(flowKey);
+  if (flowKey.includes(":")) {
+    activeFlows.delete(flowKey.split(":")[0]);
+  }
 }

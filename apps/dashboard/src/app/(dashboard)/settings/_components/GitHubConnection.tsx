@@ -12,6 +12,12 @@ import {
   KeyRound,
   Loader2,
   ChevronDown,
+  Users,
+  Share2,
+  Trash2,
+  Plus,
+  User,
+  Check,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -23,7 +29,7 @@ import {
 import { useCloud } from "@/context/CloudContext";
 import { useModal } from "@/context/ModalContext";
 import { usePlatform } from "@/context/PlatformContext";
-import { githubApi, settingsApi, getApiErrorMessage } from "@/lib/api";
+import { githubApi, settingsApi, getApiErrorMessage, type GitProviderItem } from "@/lib/api";
 
 import { SettingsSection } from "./SettingsSection";
 import { useI18n, interpolate } from "@/components/i18n-provider";
@@ -72,6 +78,41 @@ export function GitHubConnection() {
   const [installUrl, setInstallUrl] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [loading, setLoading] = useState(true);
+  const [providers, setProviders] = useState<GitProviderItem[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const [showAddAccountModal, setShowAddAccountModal] = useState(false);
+
+  const loadProviders = useCallback(async () => {
+    setProvidersLoading(true);
+    try {
+      const res = await githubApi.getProviders();
+      setProviders(res?.providers ?? []);
+    } catch {
+      setProviders([]);
+    } finally {
+      setProvidersLoading(false);
+    }
+  }, []);
+
+  const handleToggleShare = useCallback(async (id: string, currentShared: boolean) => {
+    try {
+      await githubApi.toggleShareProvider(id, !currentShared);
+      await loadProviders();
+    } catch (err) {
+      console.error("Failed to toggle share:", err);
+    }
+  }, [loadProviders]);
+
+  const handleDeleteProvider = useCallback(async (id: string) => {
+    try {
+      await githubApi.deleteProvider(id);
+      await loadProviders();
+      await loadStatus(true);
+    } catch (err) {
+      console.error("Failed to delete provider:", err);
+    }
+  }, [loadProviders]);
+
   // "Forward my git identity to build servers" (Settings → Clone credentials).
   // DESKTOP only — `relayConfigEligible` requires isDesktop. When on, the stored
   // identity (device sign-in or pasted token) is forwarded to remote build hosts
@@ -94,6 +135,7 @@ export function GitHubConnection() {
       setAccounts(res?.accounts ?? []);
       setInstallUrl(res?.installUrl || null);
       setCapabilities((res?.capabilities as Capabilities | undefined) ?? null);
+      void loadProviders();
     } catch {
       setState(EMPTY_STATE);
       setAccounts([]);
@@ -102,15 +144,16 @@ export function GitHubConnection() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadProviders]);
 
   useEffect(() => {
     void loadStatus();
+    void loadProviders();
     void settingsApi
       .get()
       .then((r) => setForwardGit(!!r.forwardGitToServer))
       .catch(() => {});
-  }, [loadStatus]);
+  }, [loadStatus, loadProviders]);
 
   // Connect/install opens a separate window (OAuth popup or the GitHub App
   // install tab). The connect call returns as soon as that window opens, so
@@ -254,6 +297,7 @@ export function GitHubConnection() {
   const ghProblem = state.sources.ghCli.problem;
 
   return (
+    <>
     <SettingsSection
       icon={Github}
       title={t.settings.github.title}
@@ -471,6 +515,127 @@ export function GitHubConnection() {
         </div>
       )}
     </SettingsSection>
+
+    {/* Dokploy-style Multi-Account Git Providers */}
+    <SettingsSection
+      icon={Users}
+      title="Git Providers (Dokploy Mode)"
+      description="Manage connected GitHub accounts for this organization. Team members can share credentials to deploy services together."
+      iconBg="bg-foreground/5"
+      iconColor="text-foreground"
+    >
+      {providersLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+          <Loader2 className="size-4 animate-spin" />
+          Loading Git accounts...
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {providers.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border/60 p-4 text-center">
+              <p className="text-sm text-muted-foreground">
+                No GitHub accounts linked to this organization yet.
+              </p>
+              <button
+                onClick={() => connect("cli")}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
+              >
+                <Plus className="size-3.5" />
+                Connect GitHub Account
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {providers.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between rounded-xl border border-border/40 bg-muted/20 px-4 py-3"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {p.githubAvatarUrl ? (
+                      <img
+                        src={p.githubAvatarUrl}
+                        alt={p.githubLogin || p.name}
+                        className="size-8 shrink-0 rounded-full border border-border/50"
+                      />
+                    ) : (
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                        <Github className="size-4 text-muted-foreground" />
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {p.name}
+                        </p>
+                        {p.isCurrentUser && (
+                          <span className="shrink-0 rounded-full bg-success-bg px-2 py-0.5 text-[10px] font-medium text-success">
+                            You
+                          </span>
+                        )}
+                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                          {p.tokenMethod === "token" ? "Personal Token" : "Device Flow"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {p.githubLogin && <span>@{p.githubLogin}</span>}
+                        <span>•</span>
+                        <span>{new Date(p.createdAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Share with organization toggle */}
+                    {p.isCurrentUser ? (
+                      <button
+                        onClick={() => handleToggleShare(p.id, p.sharedWithOrg)}
+                        title={p.sharedWithOrg ? "Shared with org (click to make private)" : "Private (click to share with team)"}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                          p.sharedWithOrg
+                            ? "bg-primary/10 text-primary hover:bg-primary/20"
+                            : "bg-muted text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <Share2 className="size-3" />
+                        {p.sharedWithOrg ? "Shared with Org" : "Private to You"}
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
+                        <Share2 className="size-3" />
+                        Shared with Team
+                      </span>
+                    )}
+
+                    {/* Disconnect button */}
+                    {p.isCurrentUser && (
+                      <button
+                        onClick={() => handleDeleteProvider(p.id)}
+                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-danger hover:bg-danger-bg transition-colors"
+                      >
+                        <Trash2 className="size-3" />
+                        Disconnect
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  onClick={() => connect("cli")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  <Plus className="size-3.5" />
+                  Add Another GitHub Account
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </SettingsSection>
+    </>
   );
 }
 

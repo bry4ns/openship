@@ -231,6 +231,9 @@ export const endpoints = {
     repoTree: (owner: string, repo: string) =>
       `github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tree`,
     status: "github/status",
+    providers: "github/providers",
+    toggleShareProvider: (id: string) => `github/providers/${encodeURIComponent(id)}/toggle-share`,
+    deleteProvider: (id: string) => `github/providers/${encodeURIComponent(id)}`,
     connect: "github/connect",
     connectRedirect: "github/connect/redirect",
     connectPoll: "github/connect/poll",

@@ -388,7 +388,7 @@ export async function connect(c: Context) {
       // stores a credential tokenFor refuses to use.
       const settingsService = await import("../settings/settings.service");
       await settingsService.setGhCliOperatorOptedIn(userId, true);
-      const verification = await startDeviceFlow(userId);
+      const verification = await startDeviceFlow(userId, ctx.organizationId);
       return c.json({
         connected: false,
         flow: "device_code" as const,
@@ -532,7 +532,8 @@ export async function getLocalStatus(c: Context) {
 export async function pollConnect(c: Context) {
   const ctx = getRequestContext(c);
   const { getDeviceFlowStatus } = await import("./github.local-auth");
-  const status = getDeviceFlowStatus(ctx.userId);
+  const flowKey = ctx.organizationId ? `${ctx.userId}:${ctx.organizationId}` : ctx.userId;
+  const status = getDeviceFlowStatus(flowKey);
   if (!status) {
     return c.json({ status: "none" as const }, 404);
   }
@@ -584,6 +585,40 @@ export async function setInstanceToken(c: Context) {
   const verdict = githubService.classifyPatScope(report);
   if (!verdict.ok) {
     return c.json({ error: verdict.reason, code: "INSUFFICIENT_SCOPE" }, 400);
+  }
+
+  if (ctx.organizationId) {
+    try {
+      const { repos } = await import("@repo/db");
+      const { encrypt } = await import("../../lib/crypto");
+      let avatarUrl: string | null = null;
+      try {
+        const uRes = await fetch("https://api.github.com/user", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        });
+        if (uRes.ok) {
+          const u = (await uRes.json()) as { avatar_url?: string };
+          avatarUrl = u.avatar_url ?? null;
+        }
+      } catch {}
+      await repos.gitProvider.upsert({
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        name: report.user ? `@${report.user}` : "Personal Access Token",
+        providerType: "github",
+        githubLogin: report.user,
+        githubAvatarUrl: avatarUrl,
+        tokenEncrypted: encrypt(token),
+        tokenMethod: "token",
+        sharedWithOrg: false,
+      });
+    } catch (err) {
+      console.warn("[github] saving gitProvider failed:", err);
+    }
   }
 
   const { setStoredDeviceToken } = await import("./github.local-auth");
@@ -642,6 +677,63 @@ export async function disconnect(c: Context) {
   return c.json({ success: true, source });
 }
 
+// ─── Git Providers (Dokploy-style Multi-Account & Multi-Org) ─────────────────
+
+/** GET /github/providers - List Git Providers accessible in this org. */
+export async function getProviders(c: Context) {
+  const ctx = getRequestContext(c);
+  if (!ctx.organizationId) {
+    return c.json({ error: "Organization context required" }, 400);
+  }
+  const { repos } = await import("@repo/db");
+  const list = await repos.gitProvider.listForUser(ctx.organizationId, ctx.userId || "");
+  return c.json({
+    providers: list.map((p) => ({
+      id: p.id,
+      name: p.name,
+      providerType: p.providerType,
+      githubLogin: p.githubLogin,
+      githubAvatarUrl: p.githubAvatarUrl,
+      tokenMethod: p.tokenMethod,
+      sharedWithOrg: p.sharedWithOrg,
+      isCurrentUser: p.userId === ctx.userId,
+      createdAt: p.createdAt,
+    })),
+  });
+}
+
+/** PATCH /github/providers/:id/toggle-share - Toggle whether provider is shared with org. */
+export async function toggleShareProvider(c: Context) {
+  const ctx = getRequestContext(c);
+  const id = param(c, "id");
+  const body = await c.req.json<{ shared: boolean }>().catch(() => null);
+  if (!ctx.organizationId || typeof body?.shared !== "boolean") {
+    return c.json({ error: "Invalid payload: shared (boolean) required" }, 400);
+  }
+  const { repos } = await import("@repo/db");
+  const updated = await repos.gitProvider.setShared(id, ctx.organizationId, ctx.userId || "", body.shared);
+  if (!updated) {
+    return c.json({ error: "Provider not found or not owned by user" }, 404);
+  }
+  return c.json({ ok: true, sharedWithOrg: updated.sharedWithOrg });
+}
+
+/** DELETE /github/providers/:id - Disconnect / remove a Git Provider. */
+export async function deleteProvider(c: Context) {
+  const ctx = getRequestContext(c);
+  const id = param(c, "id");
+  if (!ctx.organizationId) {
+    return c.json({ error: "Organization context required" }, 400);
+  }
+  const { repos } = await import("@repo/db");
+  const deleted = await repos.gitProvider.delete(id, ctx.organizationId, ctx.userId || "");
+  if (!deleted) {
+    return c.json({ error: "Provider not found or permission denied" }, 404);
+  }
+  await githubAuth.invalidateUserGitHubCache(ctx.userId);
+  return c.json({ ok: true });
+}
+
 // ─── Accounts / Organisations ────────────────────────────────────────────────
 //
 // `getHome` (GET /github/home → getUserHome service) is the SINGLE
@@ -662,7 +754,8 @@ export async function disconnect(c: Context) {
 export async function listRepos(c: Context) {
   const ctx = getRequestContext(c);
   const owner = c.req.query("owner");
-  const repos = await (await createGitHubSource(ctx)).listReposForOwner(owner || undefined);
+  const providerId = c.req.query("providerId");
+  const repos = await (await createGitHubSource(ctx, providerId)).listReposForOwner(owner || undefined);
   if (repos === null) return c.json({ error: "Not connected to GitHub" }, 400);
   const allowed = await filterAllowedRepos(ctx, repos, repoKey);
   return c.json(paginateRepoList(allowed, parseRepoListParams(c)));
