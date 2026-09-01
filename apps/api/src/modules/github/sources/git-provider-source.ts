@@ -7,7 +7,7 @@
  */
 
 import { repos } from "@repo/db";
-import { decrypt } from "../../../lib/crypto";
+import { decrypt } from "../../../lib/encryption";
 import { ghFetchSoft } from "../github.local-auth";
 import { mapRepositories } from "./mappers";
 import type { RequestContext } from "../../../lib/request-context";
