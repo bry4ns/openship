@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type FormEvent } from "react";
 import Link from "next/link";
 import { Project } from "@/constants/mock";
 import ProjectCard from "./components/ProjectCard";
@@ -14,10 +14,10 @@ import {
 } from "./components/ProjectFilters";
 import EmptyState from "@/components/overview/EmptyState";
 import { ProjectIllustration } from "@/components/overview/ProjectIllustration";
-import { projectsApi } from "@/lib/api";
+import { projectFoldersApi, projectsApi, type ProjectFolder } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { useI18n, interpolate } from "@/components/i18n-provider";
-import { Plus, Search, Server } from "lucide-react";
+import { Folder, FolderPlus, Plus, Search, Server, X } from "lucide-react";
 import { PageContainer } from "@/components/ui/PageContainer";
 import { HelpMenu } from "@/components/HelpMenu";
 import { usePlatform } from "@/context/PlatformContext";
@@ -27,10 +27,15 @@ const VIEW_KEY = "openship-projects-view";
 export default function ProjectsPage() {
   const { t } = useI18n();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [folders, setFolders] = useState<ProjectFolder[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>({ kind: "all" });
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<ProjectView>("grid");
+  const [showFolderForm, setShowFolderForm] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const router = useRouter();
   const { selfHosted } = usePlatform();
   const isLoadingRef = useRef(false);
@@ -53,10 +58,14 @@ export default function ProjectsPage() {
       isLoadingRef.current = true;
       setIsLoading(true);
       try {
-        const response = await projectsApi.getHome();
-        if (response.success && Array.isArray(response.projects)) {
-          setProjects(response.projects);
+        const [projectResult, folderResult] = await Promise.allSettled([
+          projectsApi.getHome(),
+          projectFoldersApi.list(),
+        ]);
+        if (projectResult.status === "fulfilled" && projectResult.value.success && Array.isArray(projectResult.value.projects)) {
+          setProjects(projectResult.value.projects);
         }
+        if (folderResult.status === "fulfilled") setFolders(folderResult.value.data ?? []);
       } catch (error) {
         console.error("Error fetching projects:", error);
       } finally {
@@ -88,6 +97,38 @@ export default function ProjectsPage() {
     );
   });
 
+  const folderGroups = useMemo(() => {
+    const groups = new Map<string | null, Project[]>();
+    for (const folder of folders) groups.set(folder.id, []);
+    groups.set(null, []);
+    for (const project of filteredProjects) {
+      const id = project.folderId && groups.has(project.folderId) ? project.folderId : null;
+      groups.get(id)!.push(project);
+    }
+    return [
+      ...folders.map((folder) => ({ id: folder.id, name: folder.name, projects: groups.get(folder.id)! })),
+      { id: null, name: "Uncategorized", projects: groups.get(null)! },
+    ].filter((group) => group.projects.length > 0 || group.id !== null);
+  }, [filteredProjects, folders]);
+
+  async function createFolder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = folderName.trim();
+    if (!name || isCreatingFolder) return;
+    setIsCreatingFolder(true);
+    setFolderError(null);
+    try {
+      const response = await projectFoldersApi.create(name);
+      setFolders((current) => [...current, response.data]);
+      setFolderName("");
+      setShowFolderForm(false);
+    } catch {
+      setFolderError("Could not create folder");
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  }
+
   return (
     <PageContainer outerClassName="pb-20">
         {/* Header */}
@@ -107,6 +148,15 @@ export default function ProjectsPage() {
           </div>
           {/* Primary action + the shared ⋮ help menu, same as the Apps page. */}
           <div className="flex w-full items-center gap-2 sm:w-auto">
+            <button
+              type="button"
+              onClick={() => { setShowFolderForm((open) => !open); setFolderError(null); }}
+              aria-label={showFolderForm ? "Cancel folder creation" : "Create folder"}
+              className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              {showFolderForm ? <X className="size-4" /> : <FolderPlus className="size-4" />}
+              <span className="hidden sm:inline">{showFolderForm ? "Cancel" : "New folder"}</span>
+            </button>
             <Link
               href="/library"
               className="inline-flex flex-1 items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25 hover:-translate-y-0.5 sm:flex-none justify-center"
@@ -114,16 +164,27 @@ export default function ProjectsPage() {
               <Plus className="size-4" />
               <span>{t.dashboard.pages.projects.createButton}</span>
             </Link>
-            <Link
-              href="/fleet"
-              className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-            >
-              <Server className="size-4" />
-              <span className="hidden sm:inline">Fleet view</span>
-            </Link>
             <HelpMenu />
           </div>
         </div>
+
+        {showFolderForm && (
+          <form onSubmit={createFolder} className="mb-5 flex flex-col gap-2 rounded-2xl border border-primary/20 bg-primary/[0.03] p-4 sm:flex-row sm:items-center">
+            <Folder className="hidden size-5 shrink-0 text-primary sm:block" />
+            <input
+              autoFocus
+              value={folderName}
+              onChange={(event) => setFolderName(event.target.value)}
+              placeholder="Folder name"
+              aria-label="Folder name"
+              className="min-w-0 flex-1 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+            />
+            <button type="submit" disabled={!folderName.trim() || isCreatingFolder} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+              {isCreatingFolder ? "Creating..." : "Create folder"}
+            </button>
+            {folderError && <span className="text-xs text-destructive" role="alert">{folderError}</span>}
+          </form>
+        )}
 
         {isLoading ? (
           <div className="bg-card rounded-2xl border border-border/50">
@@ -140,7 +201,7 @@ export default function ProjectsPage() {
               ))}
             </div>
           </div>
-        ) : projects.length === 0 ? (
+        ) : projects.length === 0 && folders.length === 0 ? (
           <EmptyState />
         ) : (
           <>
@@ -170,20 +231,36 @@ export default function ProjectsPage() {
 
               {/* Left: project list / empty state for the active search + filter */}
               <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-                {filteredProjects.length > 0 ? (
-                  view === "grid" ? (
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                      {filteredProjects.map((project) => (
-                        <ProjectGridCard key={project.id} project={project} />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="bg-card rounded-2xl border border-border/50 divide-y divide-border/50">
-                      {filteredProjects.map((project) => (
-                        <ProjectCard key={project.id} project={project} />
-                      ))}
-                    </div>
-                  )
+                {filteredProjects.length > 0 || (folders.length > 0 && !searchQuery.trim() && filter.kind === "all") ? (
+                  <div className="space-y-7">
+                    {folderGroups.map((group) => (
+                      <section key={group.id ?? "uncategorized"} className="min-w-0">
+                        <div className="mb-3 flex items-center gap-2">
+                          <Folder className="size-4 text-primary" />
+                          <h2 className="text-sm font-semibold text-foreground">{group.name}</h2>
+                          <span className="text-xs text-muted-foreground">{group.projects.length}</span>
+                        </div>
+                        {group.projects.length > 0 ? (
+                          view === "grid" ? (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                              {group.projects.map((project) => <ProjectWithFolder key={project.id} project={project} folders={folders} onAssigned={(folderId) => setProjects((current) => current.map((entry) => entry.id === project.id ? { ...entry, folderId } : entry))} />)}
+                            </div>
+                          ) : (
+                            <div className="bg-card rounded-2xl border border-border/50 divide-y divide-border/50">
+                              {group.projects.map((project) => (
+                                <div key={project.id} className="space-y-2 p-1">
+                                  <ProjectCard project={project} />
+                                  <FolderAssignment project={project} folders={folders} onAssigned={(folderId) => setProjects((current) => current.map((entry) => entry.id === project.id ? { ...entry, folderId } : entry))} />
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-border/60 px-5 py-8 text-center text-sm text-muted-foreground">No projects in this folder yet.</div>
+                        )}
+                      </section>
+                    ))}
+                  </div>
                 ) : (
                   <div className="flex min-h-[380px] flex-col items-center justify-center px-6 py-12 text-center">
                     <ProjectIllustration className="relative mx-auto mb-6 h-40 w-56" />
@@ -254,5 +331,66 @@ export default function ProjectsPage() {
           </>
         )}
     </PageContainer>
+  );
+}
+
+function ProjectWithFolder({
+  project,
+  folders,
+  onAssigned,
+}: {
+  project: Project;
+  folders: ProjectFolder[];
+  onAssigned: (folderId: string | null) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <ProjectGridCard project={project} />
+      <FolderAssignment project={project} folders={folders} onAssigned={onAssigned} />
+    </div>
+  );
+}
+
+function FolderAssignment({
+  project,
+  folders,
+  onAssigned,
+}: {
+  project: Project;
+  folders: ProjectFolder[];
+  onAssigned: (folderId: string | null) => void;
+}) {
+  const [updating, setUpdating] = useState(false);
+
+  async function assign(folderId: string | null) {
+    const previous = project.folderId ?? null;
+    if (folderId === previous) return;
+    setUpdating(true);
+    onAssigned(folderId);
+    try {
+      await projectsApi.setFolder(project.id, folderId);
+    } catch {
+      onAssigned(previous);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  return (
+    <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+      <span className="sr-only">Folder for {project.name}</span>
+      <Folder className="size-3.5 shrink-0" />
+      <select
+        value={project.folderId ?? ""}
+        disabled={updating}
+        onChange={(event) => void assign(event.target.value || null)}
+        aria-label={`Folder for ${project.name}`}
+        className="min-w-0 flex-1 rounded-lg border border-border/50 bg-card px-2 py-1.5 text-xs text-foreground outline-none focus:border-primary/40"
+      >
+        <option value="">Uncategorized</option>
+        {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+      </select>
+      {updating && <span className="shrink-0">Updating...</span>}
+    </label>
   );
 }
