@@ -49,6 +49,14 @@ vi.mock("../../../src/modules/github/github.local-auth", () => ({
   getLocalGhStatus: vi.fn(),
 }));
 
+// Listing is allowed to use the local gh credential; clone/build token policy
+// is tested separately. Keep this source-dispatch test independent of the
+// persisted operator opt-in setting.
+vi.mock("../../../src/modules/github/github.token", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/modules/github/github.token")>()),
+  mayUseOperatorCliToken: vi.fn().mockResolvedValue(true),
+}));
+
 // env: {} → CLOUD_MODE is falsy, so createGitHubSource takes the LOCAL branch
 // (GhCliSource + LocalGitHubSource) — exactly the merge these tests exercise.
 vi.mock("../../../src/config/env", () => ({
