@@ -35,6 +35,8 @@ export type {
   ObjectStorageProviderSpec,
   ObjectStorageView,
 } from "./projects";
+export { projectFoldersApi } from "./project-folders";
+export type { ProjectFolder, ProjectFolderProject } from "./project-folders";
 export type { ReleaseImageSource } from "../release-image-source";
 export { appsApi } from "./apps";
 export type { AppCatalogEntry, AppCatalogField, InstallAppResult } from "./apps";

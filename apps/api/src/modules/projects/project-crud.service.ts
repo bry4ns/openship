@@ -1636,6 +1636,11 @@ export async function updateProject(
   const p = await repos.project.findById(projectId);
   assertResourceInOrg(p, "Project", organizationId, projectId);
 
+  if (data.folderId !== undefined && data.folderId !== null) {
+    const folder = await repos.projectFolder.findByIdInOrganization(organizationId, data.folderId);
+    if (!folder) throw new NotFoundError("Project folder", data.folderId);
+  }
+
   // Reject a bogus custom hostname before the field edits below are committed — the
   // route sync happens after them, so validating there alone would 400 a request
   // that had already written the rest of the patch. Net-new only (the endpoint list

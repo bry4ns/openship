@@ -11,6 +11,7 @@ export { invitationPendingGrant } from "./invitation-pending-grant";
 export { gitInstallation } from "./github";
 export { githubInstallState } from "./github-install-state";
 export { projectGroup, project, envVar } from "./project";
+export { projectFolder } from "./project-folder";
 export { deployment, buildSession } from "./deployment";
 export { domain } from "./domain";
 export { routeRule } from "./route-rule";

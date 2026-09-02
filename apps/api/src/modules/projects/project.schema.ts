@@ -500,7 +500,13 @@ export const CreateProjectBody = Type.Object({
   internalAlias: Type.Optional(Type.Union([Type.String({ maxLength: 100 }), Type.Null()])),
 });
 
-export const UpdateProjectBody = Type.Partial(CreateProjectBody);
+export const UpdateProjectBody = Type.Composite([
+  Type.Partial(CreateProjectBody),
+  Type.Object({
+    /** Null moves the project back to the organization's unfiled set. */
+    folderId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+  }),
+]);
 
 /**
  * POST /projects/ensure — CreateProjectBody plus an optional `projectId` to

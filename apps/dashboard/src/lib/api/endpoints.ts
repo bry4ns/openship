@@ -70,6 +70,13 @@ export const endpoints = {
     folderUpload: (sessionId: string) => `projects/folder/upload/${sessionId}`,
   },
 
+  projectFolders: {
+    list: "project-folders",
+    create: "project-folders",
+    item: (id: string) => `project-folders/${encodeURIComponent(id)}`,
+    projects: (id: string) => `project-folders/${encodeURIComponent(id)}/projects`,
+  },
+
   /* ---------------------------------------------------------------- */
   /*  Apps (one-click catalog installs)                               */
   /* ---------------------------------------------------------------- */

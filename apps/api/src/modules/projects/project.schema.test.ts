@@ -31,9 +31,15 @@ describe("UpdateProjectBody — mass-assignment allow-list", () => {
   });
 
   it("still allows the documented editable fields (no accidental over-restriction)", () => {
-    for (const allowed of ["name", "gitBranch", "port", "publicEndpoints", "routingConfig"]) {
+    for (const allowed of ["name", "gitBranch", "port", "publicEndpoints", "routingConfig", "folderId"]) {
       expect(keys).toContain(allowed);
     }
+  });
+
+  it("accepts filing and unfiling a project", () => {
+    expect(Value.Check(UpdateProjectBody, { folderId: "folder_1" })).toBe(true);
+    expect(Value.Check(UpdateProjectBody, { folderId: null })).toBe(true);
+    expect(Value.Check(UpdateProjectBody, { folderId: "" })).toBe(false);
   });
 });
 

@@ -20,6 +20,7 @@ import type {
 import { organization } from "./organization";
 import { service } from "./service";
 import { servers } from "./servers";
+import { projectFolder } from "./project-folder";
 
 // ─── Project apps ────────────────────────────────────────────────────────────
 
@@ -80,6 +81,8 @@ export const project = pgTable(
     groupId: text("app_id")
       .notNull()
       .references(() => projectGroup.id, { onDelete: "cascade" }),
+    /** Optional organization folder; null preserves legacy/unfiled projects. */
+    folderId: text("folder_id").references(() => projectFolder.id, { onDelete: "set null" }),
 
     /** Display name (e.g. "My Next App") */
     name: text("name").notNull(),

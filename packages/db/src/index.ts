@@ -80,6 +80,8 @@ export {
   type NewGitInstallation,
   type ProjectGroup,
   type NewProjectGroup,
+  type ProjectFolder,
+  type NewProjectFolder,
   type Project,
   type NewProject,
   type EnvVar,

@@ -31,6 +31,7 @@ export {
   type ProjectGroup,
   type NewProjectGroup,
 } from "./project-group.repo";
+export { createProjectFolderRepo, type ProjectFolder, type NewProjectFolder } from "./project-folder.repo";
 export {
   createProjectRepo,
   type Project,
@@ -277,6 +278,7 @@ import { createGitInstallationRepo } from "./git-installation.repo";
 import { createGitProviderRepo } from "./git-provider.repo";
 import { createGithubInstallStateRepo } from "./github-install-state.repo";
 import { createProjectGroupRepo } from "./project-group.repo";
+import { createProjectFolderRepo } from "./project-folder.repo";
 import { createProjectRepo } from "./project.repo";
 import { createDeploymentRepo } from "./deployment.repo";
 import { createDomainRepo } from "./domain.repo";
@@ -362,6 +364,7 @@ export const repos = {
   gitProvider: createGitProviderRepo(db),
   githubInstallState: createGithubInstallStateRepo(db),
   projectGroup: createProjectGroupRepo(db),
+  projectFolder: createProjectFolderRepo(db),
   project: createProjectRepo(db),
   deployment: createDeploymentRepo(db),
   domain: createDomainRepo(db),

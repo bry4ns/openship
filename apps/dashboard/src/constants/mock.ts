@@ -11,6 +11,8 @@ export interface Project {
   id: string;
   name: string;
   slug: string;
+  /** Organization project folder; null means the uncategorized bucket. */
+  folderId?: string | null;
 
   /* ── Source ──────────────────────────────────────────────── */
   localPath?: string | null;

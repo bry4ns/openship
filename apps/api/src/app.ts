@@ -25,6 +25,7 @@ import {
   rewriteMetadataOrigin,
 } from "./lib/mcp-resource";
 import { projectRoutes } from "./modules/projects/project.routes";
+import { projectFolderRoutes } from "./modules/project-folders/project-folder.routes";
 import { appRoutes } from "./modules/apps/app.routes";
 import { appSettingsRoutes } from "./modules/apps/app-settings.routes";
 import { appConnectionRoutes } from "./modules/apps/app-connection.routes";
@@ -170,6 +171,7 @@ app.use("/api/auth/mcp/authorize", forceMcpConsent);
 app.route("/api/health", healthRoutes);
 app.route("/api/auth", authRoutes);
 app.route("/api/projects", projectRoutes);
+app.route("/api/project-folders", projectFolderRoutes);
 app.route("/api/apps", appRoutes);
 app.route("/api/projects/:id/services", serviceRoutes);
 app.route("/api/projects/:id/app-settings", appSettingsRoutes);

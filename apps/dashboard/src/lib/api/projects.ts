@@ -427,6 +427,10 @@ export const projectsApi = {
   update: (id: string | number, fields: Record<string, unknown>) =>
     api.patch<any>(endpoints.projects.item(id), fields),
 
+  /** Assign or remove the organization folder without widening the fleet UI's patch shape. */
+  setFolder: (id: string | number, folderId: string | null) =>
+    api.patch<any>(endpoints.projects.item(id), { folderId }),
+
   /**
    * Read-only edge health for the project's server: is OpenResty already the
    * edge on 80/443 (`ready`/`classification === "ours"`), or does it need setup?

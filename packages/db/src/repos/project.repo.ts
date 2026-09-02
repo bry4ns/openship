@@ -176,6 +176,13 @@ export function createProjectRepo(db: Database) {
       });
     },
 
+    async listByFolder(organizationId: string, folderId: string) {
+      return db.query.project.findMany({
+        where: and(eq(project.organizationId, organizationId), eq(project.folderId, folderId), isNull(project.deletedAt)),
+        orderBy: [desc(project.createdAt)],
+      });
+    },
+
     /**
      * List every project visible to a user — across ALL orgs they're a
      * member of. Resolves via the `member` join (not a stamped user_id

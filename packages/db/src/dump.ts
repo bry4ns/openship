@@ -175,7 +175,7 @@ type ScopeResolver =
   // selecting THIS table where id = that value. Used to bring along
   // FK-target rows the project depends on (e.g. project_app via
   // project.groupId). The walker fetches the root project on demand.
-  | { in: "project"; via: "from-root-project"; sourceColumn: "groupId" }
+  | { in: "project"; via: "from-root-project"; sourceColumn: "groupId" | "folderId" }
   // Whole-instance only.
   | { in: "instance"; via: "all-rows" };
 
@@ -359,6 +359,18 @@ const TABLES: ReadonlyArray<TableSpec> = [
   // For project scope we MUST include it — restore would otherwise fail
   // its FK check at COMMIT time. Resolver walks project.groupId off the
   // root project row and selects the matching project_app row.
+  // A project's folder is optional. Include the referenced folder in project
+  // and organization dumps so restoring a filed project never violates its FK.
+  {
+    sqlName: "project_folder",
+    table: schema.projectFolder,
+    scopes: [
+      { in: "instance", via: "all-rows" },
+      { in: "organization", via: "organizationId" },
+      { in: "project", via: "from-root-project", sourceColumn: "folderId" },
+    ],
+    hasOrganizationId: true,
+  },
   {
     sqlName: "project_app",
     table: schema.projectGroup,
