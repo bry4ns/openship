@@ -25,6 +25,7 @@ import { fetchOrgCloudProjects } from "../../lib/cloud/projects";
 import { resolveOrgCloudUserId } from "../../lib/cloud/transport";
 import { env } from "../../config";
 import { GRANTABLE_RESOURCE_TYPES } from "../../lib/grantable-types";
+import { refreshSelfAppPublicUrl, resolveDashboardPublicUrl } from "../../lib/public-url";
 import {
   isCloudOnlyGrantType,
   isOrgSingletonResourceType,
@@ -800,8 +801,9 @@ export async function listInvitations(c: Context) {
  *   grants?: { resourceType, resourceId, permissions[] }[]
  * }
  *
- * One-call invite. Wraps Better Auth's inviteMember + persists
- * pending grants. On accept, the accept-invite page calls
+ * One-call invite. Email delivery uses Better Auth's inviteMember; link delivery
+ * inserts the same Better Auth invitation row without invoking mail. Both paths
+ * persist pending grants. On accept, the accept-invite page calls
  * /invitations/:id/materialize which upserts resource_grant rows.
  *
  * For role !== "restricted", any provided grants are stored but won't
@@ -825,6 +827,7 @@ export async function inviteWithGrants(c: Context) {
     email?: string;
     role?: "owner" | "admin" | "member" | "restricted";
     grants?: InviteGrant[];
+    delivery?: "email" | "link";
   };
   const body: Body = await c.req.json<Body>().catch(() => ({} as Body));
 
@@ -832,35 +835,67 @@ export async function inviteWithGrants(c: Context) {
   const role = body.role ?? "member";
   if (!email) return c.json({ error: "email is required" }, 400);
 
-  // Forward to Better Auth. The plugin handles rate-limiting,
-  // duplicate-invite checks, and email sending (when SMTP is
-  // configured). The role union is wider than Better Auth's narrowed
-  // type — we validate above so the cast is safe.
-  const result = await auth.api
-    .createInvitation({
-      body: {
-        email,
-        role: role as "restricted",
-        organizationId,
-      },
-      headers: c.req.raw.headers,
-    })
-    .catch((err: unknown) => {
-      console.error("[invite-with-grants] Better Auth invite failed:", err);
-      return null;
+  let invitationId: string | undefined;
+  if (body.delivery === "link") {
+    if (!["owner", "admin", "member", "restricted"].includes(role)) {
+      return c.json({ error: "invalid role" }, 400);
+    }
+    if (await repos.invitation.findPendingByOrgEmail(organizationId, email)) {
+      return c.json({ error: "An invitation is already pending for this email" }, 409);
+    }
+    const recent = await repos.invitation.countByInviterSince(
+      actorUserId,
+      new Date(Date.now() - 60 * 60 * 1000),
+    );
+    if (recent >= 50) {
+      return c.json({ error: "Invitation rate limit reached (50/hour). Try again later." }, 429);
+    }
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const invitation = await repos.invitation.create({
+      id: generateId("inv"),
+      organizationId,
+      email,
+      role,
+      status: "pending",
+      inviterId: actorUserId,
+      expiresAt,
     });
+    invitationId = invitation.id;
+  } else {
+    // Forward to Better Auth. The plugin handles rate-limiting,
+    // duplicate-invite checks, and email sending.
+    const result = await auth.api
+      .createInvitation({
+        body: {
+          email,
+          role: role as "restricted",
+          organizationId,
+        },
+        headers: c.req.raw.headers,
+      })
+      .catch((err: unknown) => {
+        console.error("[invite-with-grants] Better Auth invite failed:", err);
+        return null;
+      });
 
-  const invitationId =
-    (result && typeof result === "object" && "id" in result
-      ? (result as { id?: string }).id
-      : undefined) ??
-    (result && typeof result === "object" && "invitation" in result
-      ? (result as { invitation?: { id?: string } }).invitation?.id
-      : undefined);
+    invitationId =
+      (result && typeof result === "object" && "id" in result
+        ? (result as { id?: string }).id
+        : undefined) ??
+      (result && typeof result === "object" && "invitation" in result
+        ? (result as { invitation?: { id?: string } }).invitation?.id
+        : undefined);
+  }
 
   if (!invitationId) {
     return c.json({ error: "Failed to create invitation" }, 500);
   }
+
+  const inviteUrl =
+    body.delivery === "link"
+      ? (await refreshSelfAppPublicUrl().catch(() => {}),
+        `${resolveDashboardPublicUrl()}/accept-invite/${invitationId}`)
+      : undefined;
 
   // Validate + dedupe + reject malformed.
   const grants = (body.grants ?? []).filter((g) => {
@@ -927,6 +962,7 @@ export async function inviteWithGrants(c: Context) {
         email,
         role,
         pendingGrantCount: grants.length,
+        ...(inviteUrl ? { inviteUrl } : {}),
       },
     },
     201,

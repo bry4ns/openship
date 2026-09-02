@@ -378,7 +378,9 @@ export async function connect(c: Context) {
         flow: "token" as const,
         command: "gh auth login",
         message:
-          "Paste a GitHub token to connect this instance. " +
+          (ctx.organizationId
+            ? "Paste a GitHub token to connect your account to the active organization. "
+            : "Paste a GitHub token to connect this instance. ") +
           "Needs the `repo` scope (add `read:org` to see organization repos).",
       });
     }
@@ -388,7 +390,7 @@ export async function connect(c: Context) {
       // stores a credential tokenFor refuses to use.
       const settingsService = await import("../settings/settings.service");
       await settingsService.setGhCliOperatorOptedIn(userId, true);
-      const verification = await startDeviceFlow(userId);
+      const verification = await startDeviceFlow(userId, ctx.organizationId);
       return c.json({
         connected: false,
         flow: "device_code" as const,
@@ -532,7 +534,8 @@ export async function getLocalStatus(c: Context) {
 export async function pollConnect(c: Context) {
   const ctx = getRequestContext(c);
   const { getDeviceFlowStatus } = await import("./github.local-auth");
-  const status = getDeviceFlowStatus(ctx.userId);
+  const flowKey = ctx.organizationId ? `${ctx.userId}:${ctx.organizationId}` : ctx.userId;
+  const status = getDeviceFlowStatus(flowKey);
   if (!status) {
     return c.json({ status: "none" as const }, 404);
   }
@@ -586,8 +589,47 @@ export async function setInstanceToken(c: Context) {
     return c.json({ error: verdict.reason, code: "INSUFFICIENT_SCOPE" }, 400);
   }
 
-  const { setStoredDeviceToken } = await import("./github.local-auth");
-  await setStoredDeviceToken(token, "token");
+  if (ctx.organizationId) {
+    try {
+      const { repos } = await import("@repo/db");
+      const { encrypt } = await import("../../lib/encryption");
+      let avatarUrl: string | null = null;
+      try {
+        const uRes = await fetch("https://api.github.com/user", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        });
+        if (uRes.ok) {
+          const u = (await uRes.json()) as { avatar_url?: string };
+          avatarUrl = u.avatar_url ?? null;
+        }
+      } catch {}
+      await repos.gitProvider.upsert({
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        name: report.user ? `@${report.user}` : "Personal Access Token",
+        providerType: "github",
+        githubLogin: report.user,
+        githubAvatarUrl: avatarUrl,
+        tokenEncrypted: encrypt(token),
+        tokenMethod: "token",
+        sharedWithOrg: false,
+      });
+    } catch (err) {
+      console.warn("[github] saving gitProvider failed:", err);
+    }
+  }
+
+  // Organization-scoped connections are already persisted in git_providers.
+  // Do not mirror them into instance_settings, which is instance-global and
+  // could leak one organization's credential into another organization's build.
+  if (!ctx.organizationId) {
+    const { setStoredDeviceToken } = await import("./github.local-auth");
+    await setStoredDeviceToken(token, "token");
+  }
   // Sweep this user's cached GitHub state so /status and the importer see the new
   // identity on the NEXT read. Without it the connection only appeared after the
   // cached verdict aged out — i.e. "I added a token but New Project still fails".
@@ -595,13 +637,13 @@ export async function setInstanceToken(c: Context) {
   // Clicking connect means "I want to be connected" — clear any prior
   // Disconnect suppression, same as the interactive connect path does.
   const settingsService = await import("../settings/settings.service");
-  await settingsService.setGithubCliDisabled(ctx.userId, false);
+  if (!ctx.organizationId) await settingsService.setGithubCliDisabled(ctx.userId, false);
   // …and record the operator opt-in `tokenFor` gates the stored-credential branch
   // on. Nothing ever set that flag, so a pasted token was stored, the UI said
   // "Connected", and the next deploy still reported "no App/PAT token is
   // available". Pasting a credential into Openship IS the explicit act the flag
   // was designed to capture.
-  await settingsService.setGhCliOperatorOptedIn(ctx.userId, true);
+  if (!ctx.organizationId) await settingsService.setGhCliOperatorOptedIn(ctx.userId, true);
 
   if (ctx.organizationId) {
     audit.recordAsync(auditContextFrom(c, ctx.organizationId, ctx.userId), {
@@ -642,6 +684,89 @@ export async function disconnect(c: Context) {
   return c.json({ success: true, source });
 }
 
+// ─── Git Providers (Dokploy-style Multi-Account & Multi-Org) ─────────────────
+
+/** GET /github/providers - List Git Providers accessible in this org. */
+export async function getProviders(c: Context) {
+  const ctx = getRequestContext(c);
+  if (!ctx.organizationId) {
+    return c.json({ error: "Organization context required" }, 400);
+  }
+  const { repos } = await import("@repo/db");
+  const list = await repos.gitProvider.listForUser(ctx.organizationId, ctx.userId || "");
+  return c.json({
+    providers: list.map((p) => ({
+      id: p.id,
+      name: p.name,
+      providerType: p.providerType,
+      githubLogin: p.githubLogin,
+      githubAvatarUrl: p.githubAvatarUrl,
+      tokenMethod: p.tokenMethod,
+      sharedWithOrg: p.sharedWithOrg,
+      isCurrentUser: p.userId === ctx.userId,
+      createdAt: p.createdAt,
+    })),
+  });
+}
+
+/** PATCH /github/providers/:id/toggle-share - Toggle whether provider is shared with org. */
+export async function toggleShareProvider(c: Context) {
+  const ctx = getRequestContext(c);
+  const id = param(c, "id");
+  const body = await c.req.json<{ shared: boolean }>().catch(() => null);
+  if (!ctx.organizationId || typeof body?.shared !== "boolean") {
+    return c.json({ error: "Invalid payload: shared (boolean) required" }, 400);
+  }
+  const { repos } = await import("@repo/db");
+  const updated = await repos.gitProvider.setShared(id, ctx.organizationId, ctx.userId || "", body.shared);
+  if (!updated) {
+    return c.json({ error: "Provider not found or not owned by user" }, 404);
+  }
+  return c.json({ ok: true, sharedWithOrg: updated.sharedWithOrg });
+}
+
+/** Grant or revoke a private provider for one organization member. */
+export async function setProviderMemberAccess(c: Context) {
+  const ctx = getRequestContext(c);
+  const { repos } = await import("@repo/db");
+  const id = param(c, "id");
+  const body = await c.req.json<{ userId?: string; granted?: boolean }>().catch(() => null);
+  if (!ctx.organizationId || !body?.userId || typeof body.granted !== "boolean") {
+    return c.json({ error: "userId and granted are required" }, 400);
+  }
+  const actor = await repos.member.find(ctx.organizationId, ctx.userId || "");
+  if (actor?.role !== "owner" && actor?.role !== "admin") {
+    return c.json({ error: "Only organization admins can assign Git Providers" }, 403);
+  }
+  const provider = await repos.gitProvider.findInOrg(id, ctx.organizationId);
+  if (!provider) return c.json({ error: "Provider not found" }, 404);
+  const updated = await repos.member.setGitProviderAccess(ctx.organizationId, body.userId, id, body.granted);
+  if (!updated) return c.json({ error: "Member not found" }, 404);
+  return c.json({ ok: true, userId: body.userId, granted: body.granted });
+}
+
+/** DELETE /github/providers/:id - Disconnect / remove a Git Provider. */
+export async function deleteProvider(c: Context) {
+  const ctx = getRequestContext(c);
+  const id = param(c, "id");
+  if (!ctx.organizationId) {
+    return c.json({ error: "Organization context required" }, 400);
+  }
+  const { repos } = await import("@repo/db");
+  const member = await repos.member.find(ctx.organizationId, ctx.userId || "");
+  const canDeleteAny = member?.role === "owner" || member?.role === "admin";
+  const deleted = await repos.gitProvider.delete(
+    id,
+    ctx.organizationId,
+    canDeleteAny ? undefined : (ctx.userId || ""),
+  );
+  if (!deleted) {
+    return c.json({ error: "Provider not found or permission denied" }, 404);
+  }
+  await githubAuth.invalidateUserGitHubCache(ctx.userId);
+  return c.json({ ok: true });
+}
+
 // ─── Accounts / Organisations ────────────────────────────────────────────────
 //
 // `getHome` (GET /github/home → getUserHome service) is the SINGLE
@@ -662,7 +787,8 @@ export async function disconnect(c: Context) {
 export async function listRepos(c: Context) {
   const ctx = getRequestContext(c);
   const owner = c.req.query("owner");
-  const repos = await (await createGitHubSource(ctx)).listReposForOwner(owner || undefined);
+  const providerId = c.req.query("providerId");
+  const repos = await (await createGitHubSource(ctx, providerId)).listReposForOwner(owner || undefined);
   if (repos === null) return c.json({ error: "Not connected to GitHub" }, 400);
   const allowed = await filterAllowedRepos(ctx, repos, repoKey);
   return c.json(paginateRepoList(allowed, parseRepoListParams(c)));
@@ -673,7 +799,9 @@ export async function listRepos(c: Context) {
 export async function listOrgRepos(c: Context) {
   const ctx = getRequestContext(c);
   const org = param(c, "org");
-  const repos = await (await createGitHubSource(ctx)).listReposForOwner(org);
+  const providerId = c.req.query("providerId");
+  const scopedCtx = providerId ? { ...ctx, gitProviderId: providerId } : ctx;
+  const repos = await (await createGitHubSource(scopedCtx, providerId)).listReposForOwner(org);
   if (repos === null) return c.json({ error: "Not connected to GitHub" }, 400);
   const allowed = await filterAllowedRepos(ctx, repos, repoKey);
   return c.json(paginateRepoList(allowed, parseRepoListParams(c)));
@@ -706,9 +834,11 @@ export async function getRepo(c: Context) {
   const ctx = getRequestContext(c);
   const owner = param(c, "owner");
   const repo = param(c, "repo");
+  const providerId = c.req.query("providerId");
+  const scopedCtx = providerId ? { ...ctx, gitProviderId: providerId } : ctx;
   const withBranches = c.req.query("branches") === "true";
 
-  const data = await githubService.getRepository(ctx, owner, repo, {
+  const data = await githubService.getRepository(scopedCtx, owner, repo, {
     withBranches,
   });
   return c.json({ data });
@@ -764,8 +894,10 @@ export async function listBranches(c: Context) {
   const ctx = getRequestContext(c);
   const owner = param(c, "owner");
   const repo = param(c, "repo");
+  const providerId = c.req.query("providerId");
+  const scopedCtx = providerId ? { ...ctx, gitProviderId: providerId } : ctx;
 
-  const data = await githubService.listBranches(ctx, owner, repo);
+  const data = await githubService.listBranches(scopedCtx, owner, repo);
   return c.json({ data });
 }
 
@@ -782,13 +914,15 @@ export async function getCloneToken(c: Context) {
   const ctx = getRequestContext(c);
   const owner = param(c, "owner");
   const repo = param(c, "repo");
+  const providerId = c.req.query("providerId");
+  const scopedCtx = providerId ? { ...ctx, gitProviderId: providerId } : ctx;
 
   // Narrow the token to THIS repo. An installation token otherwise reaches every
   // repo the installation covers, so a caller granted one repo would walk away
   // with an owner-wide credential — broader than their grant, and long-lived
   // enough to matter. The route also requires `content-whole`, because a clone
   // cannot be path-filtered.
-  const token = await githubAuth.getInstallationToken(ctx, owner, undefined, {
+  const token = await githubAuth.getInstallationToken(scopedCtx, owner, undefined, {
     repositories: [repo],
   });
   if (!token) {
@@ -830,12 +964,13 @@ export async function detectStack(c: Context) {
   const repo = param(c, "repo");
   const branch = c.req.query("branch")?.trim();
   const composePath = c.req.query("composePath")?.trim();
+  const providerId = c.req.query("providerId");
 
   const info = await resolveProjectInfo({
     source: "github",
     owner,
     repo,
-    ctx,
+    ctx: providerId ? { ...ctx, gitProviderId: providerId } : ctx,
     ...(branch ? { branch } : {}),
     ...(composePath ? { composePath } : {}),
   });

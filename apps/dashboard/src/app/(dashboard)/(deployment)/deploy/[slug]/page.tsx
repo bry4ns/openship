@@ -27,6 +27,7 @@ import ErrorState from "@/components/shared/ErrorState";
 import { PageContainer } from "@/components/ui/PageContainer";
 import { useToast } from "@/components/toast";
 import { useI18n } from "@/components/i18n-provider";
+import { githubApi, type GitProviderItem } from "@/lib/api";
 
 interface DeployError {
     type: 'invalid_url' | 'repo_not_found' | 'initialization_failed';
@@ -37,6 +38,19 @@ interface DeployError {
 const ProjectName: React.FC = () => {
     const { config, updateConfig } = useDeployment();
     const { t } = useI18n();
+    const [providers, setProviders] = useState<GitProviderItem[]>([]);
+
+    useEffect(() => {
+        if (!config.owner || config.owner === "local" || !config.repo) return;
+        void githubApi.getProviders().then((result) => {
+            setProviders(result?.providers ?? []);
+            if (!config.gitProviderId && result?.providers?.length === 1) {
+                updateConfig({ gitProviderId: result.providers[0].id });
+            }
+        }).catch(() => setProviders([]));
+    }, [config.owner, config.repo, config.gitProviderId, updateConfig]);
+
+    const usableProviders = providers.filter((provider) => provider.githubLogin);
     return (
         <div className="bg-card rounded-2xl border border-border/50">
             <div className="px-5 py-5">
@@ -53,6 +67,28 @@ const ProjectName: React.FC = () => {
                 <p className="text-sm text-muted-foreground mt-1.5">
                     {t.deploy.page.projectNameHint}
                 </p>
+                {usableProviders.length > 0 && (
+                    <div className="mt-4">
+                        <label className="text-sm font-medium text-foreground mb-1.5 block">
+                            GitHub account
+                        </label>
+                        <select
+                            value={config.gitProviderId ?? ""}
+                            onChange={(event) => updateConfig({ gitProviderId: event.target.value || undefined })}
+                            className="w-full px-3 py-2.5 bg-muted/30 border border-border/50 rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                            <option value="">Automatic account</option>
+                            {usableProviders.map((provider) => (
+                                <option key={provider.id} value={provider.id}>
+                                    {provider.githubLogin}{provider.sharedWithOrg ? " (shared)" : ""}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-muted-foreground mt-1.5">
+                            This account is used for repository access and deploy clones.
+                        </p>
+                    </div>
+                )}
             </div>
         </div>
     );

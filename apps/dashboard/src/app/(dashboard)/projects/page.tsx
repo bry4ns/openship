@@ -114,6 +114,13 @@ export default function ProjectsPage() {
               <Plus className="size-4" />
               <span>{t.dashboard.pages.projects.createButton}</span>
             </Link>
+            <Link
+              href="/fleet"
+              className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Server className="size-4" />
+              <span className="hidden sm:inline">Fleet view</span>
+            </Link>
             <HelpMenu />
           </div>
         </div>

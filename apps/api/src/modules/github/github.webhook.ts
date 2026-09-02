@@ -66,7 +66,7 @@ import type {
 async function collectDeliverySecrets(
   payload: string | Buffer,
   headers: Record<string, string>,
-): Promise<string[]> {
+): Promise<Array<{ secret: string; projectIds: string[] }>> {
   const event = headers["x-github-event"];
   // installation / ping events aren't repo-scoped on the deploy side — they hit
   // api.openship.io's App webhook, verified with the env secret (no project).
@@ -84,13 +84,16 @@ async function collectDeliverySecrets(
   const [owner, repo] = repoFull.split("/");
   if (!owner || !repo) return [];
 
-  const secrets = new Set<string>();
+  const secrets = new Map<string, Set<string>>();
 
   const projects = await repos.project.findByGitRepo(owner, repo).catch(() => []);
   for (const p of projects) {
     if (!p.webhookSecret) continue;
     try {
-      secrets.add(decrypt(p.webhookSecret));
+      const secret = decrypt(p.webhookSecret);
+      const projectIds = secrets.get(secret) ?? new Set<string>();
+      projectIds.add(p.id);
+      secrets.set(secret, projectIds);
     } catch {
       // corrupted / key-rotated row — skip; env fallback handles it in verify()
     }
@@ -102,13 +105,17 @@ async function collectDeliverySecrets(
   for (const b of bindings) {
     if (!b.webhookSecret) continue;
     try {
-      secrets.add(decrypt(b.webhookSecret));
+      const secret = decrypt(b.webhookSecret);
+      if (!secrets.has(secret)) secrets.set(secret, new Set<string>());
     } catch {
       // try the next binding, then env fallback
     }
   }
 
-  return [...secrets];
+  return [...secrets].map(([secret, projectIds]) => ({
+    secret,
+    projectIds: [...projectIds],
+  }));
 }
 
 // ─── GitHub Webhook Provider ─────────────────────────────────────────────────
@@ -137,7 +144,7 @@ export const githubWebhookProvider: WebhookProvider = {
     // routable delivery that already has a per-project secret would make it a
     // cross-repo skeleton key that validates any managed repo's webhook.
     if (candidates.length === 0 && env.GITHUB_WEBHOOK_SECRET) {
-      candidates.push(env.GITHUB_WEBHOOK_SECRET);
+      candidates.push({ secret: env.GITHUB_WEBHOOK_SECRET, projectIds: [] });
     }
 
     // No unsigned path — a delivery with no resolvable secret can't be verified,
@@ -152,11 +159,18 @@ export const githubWebhookProvider: WebhookProvider = {
 
     // A delivery is signed with exactly one hook's secret — accept on the first
     // candidate that matches (each comparison is constant-time).
-    const valid = candidates.some((secret) => verifyHmacSha256(payload, secret, signature));
-    return valid ? { valid: true } : { valid: false, error: "Invalid signature" };
+    const matching = candidates.filter(({ secret }) => verifyHmacSha256(payload, secret, signature));
+    if (matching.length === 0) return { valid: false, error: "Invalid signature" };
+
+    const projectIds = [...new Set(matching.flatMap(({ projectIds: ids }) => ids))];
+    return { valid: true, scope: projectIds.length > 0 ? { projectIds } : undefined };
   },
 
-  async handle(payload: unknown, headers: Record<string, string>): Promise<WebhookHandlerResult> {
+  async handle(
+    payload: unknown,
+    headers: Record<string, string>,
+    scope?: { projectIds?: string[]; installationId?: number },
+  ): Promise<WebhookHandlerResult> {
     const event = headers["x-github-event"];
     if (!event) {
       return { success: true, event: "unknown", message: "Missing x-github-event header" };
@@ -185,7 +199,7 @@ export const githubWebhookProvider: WebhookProvider = {
         result = await handleInstallation(payload as GitHubInstallationPayload);
         break;
       case "push":
-        result = await handlePush(payload as GitHubPushPayload);
+        result = await handlePush(payload as GitHubPushPayload, scope);
         break;
       case "check_run":
         result = await handleCheckRun(payload as GitHubCheckRunPayload);

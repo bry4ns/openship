@@ -25,7 +25,7 @@ import { RoutingConfigCard } from "./RoutingConfigCard";
 import { RouteRules } from "./RouteRules";
 import { RoutingUnsyncedCallout } from "./RoutingUnsyncedCallout";
 import { invalidateProjectCaches } from "@/hooks/useProjectEndpoints";
-import { getApiErrorMessage, projectsApi, deployApi, domainsApi, serviceKind, servicesApi, type Service, type ServiceInput } from "@/lib/api";
+import { api, getApiErrorMessage, projectsApi, deployApi, domainsApi, serviceKind, servicesApi, type Service, type ServiceInput } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import { useI18n, interpolate } from "@/components/i18n-provider";
 import type { Dictionary } from "@/i18n";
@@ -349,9 +349,32 @@ export const DomainSettings = () => {
   const [newDomainPath, setNewDomainPath] = useState("/");
   const [showCustomDomainSection, setShowCustomDomainSection] = useState(false);
   const [includeWww, setIncludeWww] = useState(false);
+  const [sslChallenge, setSslChallenge] = useState<"http-01" | "dns-01">("http-01");
   // TLS + ingress handled upstream (Cloudflare Tunnel / LB): verify via TXT
   // only, skip certbot, serve plain HTTP. The domain need not resolve to us.
   const [externalIngress, setExternalIngress] = useState(false);
+  const wildcardDomain = newDomain.trim().toLowerCase().startsWith("*.");
+  const effectiveSslChallenge = wildcardDomain ? "dns-01" : sslChallenge;
+  const effectiveIncludeWww = wildcardDomain ? false : includeWww;
+  // Cloudflare Tunnel publishing: when the instance has a connected Cloudflare
+  // account, a custom domain can ride the tunnel instead of edge-managed TLS.
+  const [cfZones, setCfZones] = useState<Array<{ zoneId: string; name: string }>>([]);
+  const [viaTunnel, setViaTunnel] = useState(false);
+  const [tunnelSub, setTunnelSub] = useState("");
+  const [tunnelZone, setTunnelZone] = useState("");
+  useEffect(() => {
+    api
+      .get<{ connected: boolean; zones?: Array<{ zoneId: string; name: string }> }>(
+        "system/integrations/cloudflare",
+      )
+      .then((r) => {
+        if (r.connected) {
+          setCfZones(r.zones ?? []);
+          if (r.zones?.length) setTunnelZone(r.zones[0].name);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Hostname of the row currently running its Renew action. Null when no
   // renew is in flight. Per-row so multi-domain projects can renew one
@@ -819,8 +842,31 @@ export const DomainSettings = () => {
       // Custom: create the pending row + get its DNS records + real verify id
       // up front. persist (below) then attaches the port and lists it; the
       // backend keeps it pending until /verify.
-      if (isCustom) {
-        const result = await projectsApi.connectDomain(id, { domain: host, includeWww, externalIngress });
+      if (isCustom && viaTunnel) {
+        // Publish through the Cloudflare Tunnel: ensure the node's connector,
+        // attach hostname→edge route (registers the externalIngress domain row
+        // + renders its vhost server-side). No verify step — we own the DNS.
+        if (!cfZones.length) {
+          showToast("Cloudflare is connected but returned no zones", "error", t.projectSettings.domains.toast.addDomainTitle);
+          return;
+        }
+        const ensured = await api.post<{ tunnel: { id: string } }>(
+          "system/cf-tunnels/ensure",
+          {},
+        );
+        await api.post(`system/cf-tunnels/${ensured.tunnel.id}/routes`, {
+          hostname: host,
+          targetPort: Number(portValue),
+          mode: "edge",
+          projectId: id,
+        });
+      } else if (isCustom) {
+        const result = await projectsApi.connectDomain(id, {
+          domain: host,
+          includeWww: effectiveIncludeWww,
+          externalIngress,
+          sslChallenge: effectiveSslChallenge,
+        });
         if (!result.success) {
           showToast(
             result.error || t.projectSettings.domains.toast.addDomainFailed,
@@ -830,9 +876,6 @@ export const DomainSettings = () => {
           return;
         }
         if (result.records?.records) setDnsRecords(result.records.records);
-        // Track EVERY row the connect created. `result.www` is the sibling's own
-        // row (its own verify, its own cert); `wwwError` means it couldn't be
-        // claimed at all — say so instead of leaving the toggle looking successful.
         setPendingVerifyDomains([
           ...(typeof result.domain?.id === "string"
             ? [{ id: result.domain.id as string, hostname: host }]
@@ -844,12 +887,13 @@ export const DomainSettings = () => {
         }
       }
 
-      const target = hasProjectServer
+const target = hasProjectServer
         ? { port: portValue }
         : { targetPath: newDomainPath.trim() || "/" };
       const nextEndpoint = createPublicEndpoint({
         domainType: newDomainType,
         ...(isCustom ? { customDomain: host } : { domain: host }),
+        ...(isCustom && viaTunnel ? { externalIngress: true } : {}),
         ...target,
       });
       // The www variant must be in THIS save, not just in the domain table:
@@ -869,6 +913,7 @@ export const DomainSettings = () => {
               customDomain: `www.${host}`,
               redirectTo: host,
               redirectStatus: 301,
+              ...(viaTunnel ? { externalIngress: true } : {}),
               ...target,
             })
           : null;
@@ -888,6 +933,8 @@ export const DomainSettings = () => {
       setNewDomainPath("/");
       setIncludeWww(false);
       setExternalIngress(false);
+      setViaTunnel(false);
+      setTunnelSub("");
       if (!isCustom) {
         setShowCustomDomainSection(false);
         setDnsRecords([]);
@@ -1956,16 +2003,107 @@ export const DomainSettings = () => {
                   </div>
                   <button
                     onClick={() => setIncludeWww((value) => !value)}
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${includeWww ? "bg-primary" : "bg-muted"}`}
+                    disabled={wildcardDomain}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${effectiveIncludeWww ? "bg-primary" : "bg-muted"}`}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${includeWww ? "translate-x-6" : "translate-x-1"}`}
+                      className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${effectiveIncludeWww ? "translate-x-6" : "translate-x-1"}`}
                     />
                   </button>
                 </div>
               )}
 
-              {newDomainType === "custom" && (
+              {newDomainType === "custom" && !externalIngress && (
+                <div className="flex items-center justify-between gap-4 rounded-xl border border-border/50 bg-muted/25 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium text-foreground">{t.projectSettings.domains.add.dnsChallenge}</p>
+                    <p className="text-[12px] text-muted-foreground">
+                      {wildcardDomain
+                        ? t.projectSettings.domains.add.dnsChallengeWildcardDesc
+                        : t.projectSettings.domains.add.dnsChallengeDesc}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSslChallenge((value) => (value === "dns-01" ? "http-01" : "dns-01"))}
+                    disabled={wildcardDomain}
+                    aria-pressed={effectiveSslChallenge === "dns-01"}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${effectiveSslChallenge === "dns-01" ? "bg-primary" : "bg-muted"}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${effectiveSslChallenge === "dns-01" ? "translate-x-6" : "translate-x-1"}`}
+                    />
+                  </button>
+                </div>
+              )}
+
+              {newDomainType === "custom" && cfZones.length > 0 && (
+                <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-foreground">☁ Publish via Cloudflare Tunnel</p>
+                      <p className="text-[12px] text-muted-foreground">
+                        DNS + TLS handled automatically through your connected Cloudflare account.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !viaTunnel;
+                        setViaTunnel(next);
+                        if (next) setExternalIngress(true);
+                      }}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${viaTunnel ? "bg-primary" : "bg-muted"}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${viaTunnel ? "translate-x-6" : "translate-x-1"}`}
+                      />
+                    </button>
+                  </div>
+                  {viaTunnel && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        value={tunnelSub}
+                        onChange={(e) => {
+                          setTunnelSub(e.target.value.trim().toLowerCase());
+                          if (e.target.value.includes(".")) {
+                            // Allow pasting a full hostname — split on first dot.
+                            const parts = e.target.value.split(".");
+                            const zone = cfZones.find((z) => z.name === parts.slice(1).join("."));
+                            if (zone) {
+                              setTunnelSub(parts[0]);
+                              setTunnelZone(zone.name);
+                            }
+                          }
+                          setNewDomain(`${e.target.value.trim().toLowerCase()}${e.target.value && tunnelZone ? "." + tunnelZone : ""}`);
+                        }}
+                        placeholder="subdomain"
+                        className="w-40 rounded-xl border border-border/50 bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
+                      />
+                      <span className="text-muted-foreground">.</span>
+                      <select
+                        value={tunnelZone}
+                        onChange={(e) => {
+                          setTunnelZone(e.target.value);
+                          setNewDomain(`${tunnelSub}${e.target.value ? "." + e.target.value : ""}`);
+                        }}
+                        className="rounded-xl border border-border/50 bg-background px-3 py-1.5 text-sm"
+                      >
+                        {cfZones.map((z) => (
+                          <option key={z.zoneId} value={z.name}>
+                            {z.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-xs text-muted-foreground">
+                        → https://{tunnelSub || "sub"}
+                        {tunnelZone && `.${tunnelZone}`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {newDomainType === "custom" && !viaTunnel && (
                 <div className="flex items-center justify-between gap-4 rounded-xl border border-border/50 bg-muted/25 px-4 py-3">
                   <div className="min-w-0">
                     <p className="text-[13px] font-medium text-foreground">{t.projectSettings.domains.add.externalIngress}</p>

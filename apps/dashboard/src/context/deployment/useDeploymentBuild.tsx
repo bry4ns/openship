@@ -99,6 +99,7 @@ function serializeProjectPublicEndpoint(
     domain: endpoint.domain || undefined,
     customDomain: endpoint.customDomain || undefined,
     domainType: endpoint.domainType,
+    ...(endpoint.externalIngress ? { externalIngress: true } : {}),
     ...redirectPayloadFields(endpoint),
   };
 }
@@ -114,6 +115,7 @@ function serializeBuildPublicEndpoint(
     domain: endpoint.domain,
     customDomain: endpoint.customDomain,
     domainType: endpoint.domainType,
+    ...(endpoint.externalIngress ? { externalIngress: true } : {}),
     ...redirectPayloadFields(endpoint),
   };
 }
@@ -750,8 +752,9 @@ export function useDeploymentBuild(
       // Step 1: Ensure project exists
       const projectData = await projectsApi.ensure({
         projectId: config.projectId || undefined,
-        name: config.projectName || config.repo || config.localPath?.split("/").pop() || "project",
-        gitOwner: isSourceless ? undefined : config.owner || undefined,
+         name: config.projectName || config.repo || config.localPath?.split("/").pop() || "project",
+         gitProviderId: isSourceless ? undefined : config.gitProviderId,
+         gitOwner: isSourceless ? undefined : config.owner || undefined,
         gitRepo: isSourceless ? undefined : config.repo || undefined,
         gitBranch: isSourceless ? undefined : config.branch || undefined,
         localPath: config.localPath || undefined,
@@ -914,6 +917,8 @@ export function useDeploymentBuild(
               image: service.image,
               build: service.build,
               dockerfile: service.dockerfile,
+              buildArgs: service.buildArgs,
+              advanced: service.advanced,
               ports: service.ports,
               dependsOn: service.dependsOn,
               environment: service.environment,

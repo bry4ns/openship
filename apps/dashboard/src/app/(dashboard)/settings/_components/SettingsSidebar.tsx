@@ -48,7 +48,7 @@ function useInfraIssuesCount(): number {
   return enabled ? count : 0;
 }
 
-export type SettingsTabId = "general" | "git" | "tokens" | "mcp" | "team" | "notifications" | "email" | "credentials" | "dns" | "cloud" | "infrastructure" | "instance";
+export type SettingsTabId = "general" | "git" | "tokens" | "mcp" | "team" | "notifications" | "email" | "credentials" | "dns" | "cloud" | "cloudflare" | "infrastructure" | "instance";
 
 export interface SettingsTab {
   id: SettingsTabId;
@@ -68,7 +68,7 @@ export function useSettingsTabs(): { tabs: SettingsTab[]; activeTab: SettingsTab
   // `dns` is still accepted, though the DNS tab is gone: AutoDnsPanel deep-links to
   // `/settings?tab=dns` in two places (and a render test pins that string), and a value
   // missing from this list silently falls back to "general".
-  const allowedTabs: SettingsTabId[] = ["general", "git", "tokens", "mcp", "team", "notifications", "email", "credentials", "dns", "cloud", "infrastructure", "instance"];
+  const allowedTabs: SettingsTabId[] = ["general", "git", "tokens", "mcp", "team", "notifications", "email", "credentials", "dns", "cloud", "cloudflare", "infrastructure", "instance"];
   const requested: SettingsTabId = allowedTabs.includes(raw) ? raw : "general";
   // DNS credentials moved into Credentials — one screen for every third-party secret
   // instead of three. The old link lands on the screen that now owns them.
@@ -100,6 +100,7 @@ export function useSettingsTabs(): { tabs: SettingsTab[]; activeTab: SettingsTab
       requiresRole: "admin",
     },
     { id: "cloud", label: t.settings.sidebar.tabs.cloud, icon: Cloud, visible: selfHosted },
+    { id: "cloudflare", label: t.settings.sidebar.tabs.cloudflare, icon: Cloud, visible: true },
     // The servers this install runs — edge/mail container versions + global scan
     // + untracked edge routes. Self-hosted/desktop only (the SaaS has no
     // operator-managed infra). See settings/page.tsx.

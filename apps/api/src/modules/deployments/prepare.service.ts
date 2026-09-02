@@ -50,6 +50,7 @@ import {
 } from "@repo/core";
 import { env } from "../../config";
 import { createGitHubReader, type ProjectReader } from "./project-reader";
+import { ComposeConfigurationError } from "./compose-configuration-error";
 
 const PREPARE_FILE_CONTENTS = [
   ...MANIFEST_FILES,
@@ -67,8 +68,9 @@ const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml
 export type Source =
   | {
       source: "github";
-      owner: string;
-      repo: string;
+       owner: string;
+       repo: string;
+       providerId?: string;
       branch?: string;
       /** Request-scoped context — required when source === "github" so
        *  getRepository can resolve org-scoped install + cache keys.
@@ -112,7 +114,7 @@ export interface ResolveOptions {
 }
 
 /** Thrown when a declared `composePath` has no compose file behind it. */
-class ComposePathNotFoundError extends Error {
+class ComposePathNotFoundError extends ComposeConfigurationError {
   constructor(message: string) {
     super(message);
     this.name = "ComposePathNotFoundError";
@@ -743,7 +745,8 @@ export async function resolveProjectInfo(input: Source): Promise<ProjectInfo> {
     if (!input.ctx) {
       throw new Error("resolveProjectInfo(github): ctx is required");
     }
-    return resolveFromGitHub(input.ctx, input.owner, input.repo, input.branch, {
+    const scopedCtx = input.providerId ? { ...input.ctx, gitProviderId: input.providerId } : input.ctx;
+    return resolveFromGitHub(scopedCtx, input.owner, input.repo, input.branch, {
       composePath: input.composePath,
       env: input.env,
     });
@@ -959,7 +962,10 @@ function toProjectInfo(
       // only parse when compose IS this root's stack.
       const detail = err instanceof Error && err.message ? err.message : "Unknown parser error";
       const where = opts?.declaredCompose ? ` at "${projectRoot.rootDirectory || "."}"` : "";
-      throw new Error(`Could not parse the Docker Compose file${where}: ${detail}`, { cause: err });
+      throw new ComposeConfigurationError(
+        `Could not parse the Docker Compose file${where}: ${detail}`,
+        { cause: err },
+      );
     }
 
     // A BLOCKING key refuses the import, outside the parse try/catch so it never
@@ -972,7 +978,7 @@ function toProjectInfo(
     const blocking = blockingComposeFields(unsupportedCompose ?? []);
     if (blocking.length > 0) {
       const where = opts?.declaredCompose ? ` at "${projectRoot.rootDirectory || "."}"` : "";
-      throw new Error(
+      throw new ComposeConfigurationError(
         `The Docker Compose file${where} declares options Openship can't deploy faithfully:\n` +
           describeBlockingComposeFields(blocking),
       );

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 
 /**
@@ -56,6 +56,8 @@ export const member = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"), // "owner" | "admin" | "member"
+    /** Explicit Git Provider grants for non-owner members. */
+    accessedGitProviders: jsonb("accessed_git_providers").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [

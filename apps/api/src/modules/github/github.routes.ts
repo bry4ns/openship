@@ -32,6 +32,12 @@ r.post("/disconnect", { tag: "github:admin" }, ctrl.disconnect);
 // identity; `github:admin` because it sets a credential for the whole instance.
 r.post("/instance-token", { tag: "github:admin", localOnly: true }, ctrl.setInstanceToken);
 
+/* ─── Git Providers (Dokploy-style Multi-Account) ───────────────────────── */
+r.get("/providers", { tag: "github:read", mcp: { description: "List connected Git Providers in the org." } }, ctrl.getProviders);
+r.patch("/providers/:id/toggle-share", { tag: "github:write" }, ctrl.toggleShareProvider);
+r.patch("/providers/:id/access", { tag: "github:admin" }, ctrl.setProviderMemberAccess);
+r.delete("/providers/:id", { tag: "github:admin" }, ctrl.deleteProvider);
+
 /* ─── Accounts / Organisations ─────────────────────────────────────────── */
 // /home returns { state, accounts, repos } in one round trip — the
 // dashboard's only entry point.
@@ -110,4 +116,3 @@ r.post("/repos/:owner/:repo/webhooks", { tag: "github:write" }, ctrl.registerWeb
 r.delete("/repos/:owner/:repo/webhooks", { tag: "github:admin" }, ctrl.deleteWebhook);
 
 export const githubRoutes = r.hono;
-

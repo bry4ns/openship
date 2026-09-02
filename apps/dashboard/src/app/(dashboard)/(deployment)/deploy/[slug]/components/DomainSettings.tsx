@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isValidCustomHostname } from "@repo/core";
-import { getApiErrorMessage, projectsApi } from "@/lib/api";
+import { api, getApiErrorMessage, projectsApi } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import { usePlatform } from "@/context/PlatformContext";
 import { useI18n } from "@/components/i18n-provider";
@@ -17,6 +17,9 @@ interface DomainSettingsProps {
   endpoints: PublicEndpoint[];
   hasServer: boolean;
   runtimePort: string;
+  /** Deploy-target node for Cloudflare Tunnel connectors (null/undefined = the
+   *  OpenShip box itself). */
+  serverId?: string | null;
   setEndpoints: (endpoints: PublicEndpoint[], runtimePort?: string) => void;
   /** "None" routing — deploy with no public URL. */
   noPublicRoute: boolean;
@@ -32,6 +35,7 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
   endpoints,
   hasServer,
   runtimePort,
+  serverId,
   setEndpoints,
   noPublicRoute,
   setNoPublicRoute,
@@ -39,6 +43,26 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
   const { showToast } = useToast();
   const { t } = useI18n();
   const { selfHosted } = usePlatform();
+
+  // Tunnel node label for the ☁ tab: the deploy-target server's name, or the
+  // control-plane box when deploying locally. Read once when a server is targeted.
+  const [serverName, setServerName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!serverId) {
+      setServerName(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ id: string; name?: string }>(`system/servers/${serverId}`)
+      .then((s) => {
+        if (!cancelled) setServerName(s?.name ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [serverId]);
 
   const handleChange = useCallback(async (
     nextEndpoints: PublicEndpoint[],
@@ -89,9 +113,11 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
 
   const mode: RoutingMode = noPublicRoute
     ? "none"
-    : endpoints[0]?.domainType === "custom"
-      ? "custom"
-      : "free";
+    : endpoints[0]?.domainType === "custom" && endpoints[0]?.externalIngress === true
+      ? "cloudflare"
+      : endpoints[0]?.domainType === "custom"
+        ? "custom"
+        : "free";
 
   const handleModeChange = useCallback(
     (next: RoutingMode) => {
@@ -132,13 +158,58 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
       const base =
         endpoints[0] ??
         createPublicEndpoint({
-          domainType: next,
+          domainType: next === "cloudflare" ? "custom" : next,
           domain: next === "free" ? normalizeSubdomain(projectName) : "",
         });
-      void handleChange([{ ...base, domainType: next }, ...endpoints.slice(1)]);
+      void handleChange([
+        {
+          ...base,
+          domainType: next === "cloudflare" ? "custom" : next,
+          ...(next === "cloudflare" ? { externalIngress: true } : {}),
+        },
+        ...endpoints.slice(1),
+      ]);
     },
     [endpoints, handleChange, projectId, projectName, setEndpoints, setNoPublicRoute, showToast, t],
   );
+
+  // Cloudflare mode: once the composed hostname is valid, provision the node's
+  // connector and attach the route (DNS record + remote-managed ingress +
+  // externalIngress vhost). Guarded by the last-attached host so keystroke
+  // autosaves don't spam the Cloudflare API, and idempotent on re-visits.
+  const lastCfHostRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (mode !== "cloudflare" || !projectId || noPublicRoute) return;
+    const ep = endpoints[0];
+    const host = ep?.domainType === "custom" ? (ep.customDomain ?? "").trim().toLowerCase() : "";
+    if (!isValidCustomHostname(host)) return;
+    if (lastCfHostRef.current === host) return;
+    lastCfHostRef.current = host;
+
+    const payload = serverId ? { serverId } : {};
+    (async () => {
+      try {
+        const ensured = await api.post<{ tunnel: { id: string } }>(
+          "system/cf-tunnels/ensure",
+          payload,
+        );
+        const port = Number(ep?.port ?? runtimePort);
+        await api.post(`system/cf-tunnels/${ensured.tunnel.id}/routes`, {
+          hostname: host,
+          targetPort: Number.isFinite(port) && port > 0 ? port : undefined,
+          mode: "edge",
+          projectId,
+        });
+        showToast(`☁ ${host} published via Cloudflare Tunnel`, "success", t.deploy.domainSettings.toastTitle);
+      } catch (err) {
+        showToast(
+          getApiErrorMessage(err, "Cloudflare Tunnel publish failed"),
+          "error",
+          t.deploy.domainSettings.toastTitle,
+        );
+      }
+    })();
+  }, [mode, endpoints, projectId, serverId, runtimePort, noPublicRoute, showToast, t]);
 
   return (
     <RoutingModePicker
@@ -153,6 +224,7 @@ const DomainSettings: React.FC<DomainSettingsProps> = ({
       hasServer={hasServer}
       runtimePort={runtimePort}
       onEndpointsChange={handleChange}
+      tunnelNode={serverName || (serverId ? undefined : "This box (OpenShip)")}
       // "Include www" creates the sibling as a 301 to the apex, so the control has
       // to be visible here or that's an invisible redirect. Rendered in the box's
       // own vhost → self-hosted only (the API refuses it for cloud projects).

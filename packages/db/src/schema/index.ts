@@ -5,11 +5,13 @@ export { auditSettings } from "./audit-settings";
 export { jobRun } from "./job-run";
 export { job } from "./job";
 export { orphanedResource } from "./orphaned-resource";
+export { hostPortClaim } from "./host-port-claim";
 export { resourceGrant } from "./resource-grant";
 export { invitationPendingGrant } from "./invitation-pending-grant";
 export { gitInstallation } from "./github";
 export { githubInstallState } from "./github-install-state";
 export { projectGroup, project, envVar } from "./project";
+export { projectFolder } from "./project-folder";
 export { deployment, buildSession } from "./deployment";
 export { domain } from "./domain";
 export { routeRule } from "./route-rule";
@@ -35,25 +37,17 @@ export { userSettings, instanceSettings } from "./settings";
 export { servers } from "./servers";
 export { serverGithubAuth, githubDeployKey } from "./server-github";
 export { serverTunnels } from "./server-tunnel";
+export { cfAccounts, cfTunnels, cfTunnelRoutes } from "./cf-tunnel";
 export { mailServers, mailInboundRule } from "./mail";
 export { serverAnalytics, serverAnalyticsGeo } from "./analytics";
-export {
-  resourceUsage,
-  RESOURCE_BUCKET_MINUTES,
-  SINGLE_APP_SERVICE_KEY,
-} from "./resource-usage";
+export { resourceUsage, RESOURCE_BUCKET_MINUTES, SINGLE_APP_SERVICE_KEY } from "./resource-usage";
 export { terminalSessions } from "./terminal-sessions";
 export { serviceTerminalSessions } from "./service-terminal-sessions";
 export { cloudHandoffCode } from "./cloud-handoff-code";
 export { personalAccessToken } from "./personal-access-token";
 export { personalAccessTokenGrant } from "./personal-access-token-grant";
 export { oauthApplication, oauthAccessToken, oauthConsent } from "./oauth";
-export {
-  backupDestination,
-  backupPolicy,
-  backupRun,
-  backupRestore,
-} from "./backup";
+export { backupDestination, backupPolicy, backupRun, backupRestore } from "./backup";
 export { dockerMigrationRun } from "./docker-migration";
 export {
   notificationChannel,
@@ -74,3 +68,4 @@ export {
 export { customAppTemplate } from "./custom-app-template";
 export { dnsCredential } from "./dns-credential";
 export { credential } from "./credential";
+export { gitProviders, type GitProvider, type NewGitProvider } from "./git-provider";

@@ -36,6 +36,7 @@ interface PreparedConfigArgs {
   branch: string;
   branches: string[];
   projectId?: string;
+  gitProviderId?: string;
   localPath?: string;
   uploadSessionId?: string;
 }
@@ -741,7 +742,8 @@ export function useDeploymentConfig() {
         owner,
         localPath,
         uploadSessionId,
-        projectName: project?.name || repoName,
+         projectName: project?.name || repoName,
+         gitProviderId: project?.gitProviderId || undefined,
         // The scan echoes back the compose path it actually used (request value or
         // the one openship.json declared), so the field shows what's in effect and
         // the value survives into the project row on save.
@@ -862,6 +864,7 @@ export function useDeploymentConfig() {
         const response = await deployApi.prepare({
           owner: sourceOwner,
           repo: sourceRepo,
+          providerId: project?.gitProviderId || undefined,
           branch: requestedBranch,
           force,
           ...scanComposePath(context?.composePath, project),
@@ -894,8 +897,9 @@ export function useDeploymentConfig() {
           owner: response.repository.owner?.login || sourceOwner,
           branch: selectedBranch,
           branches: branchOptions,
-          projectId: context?.projectId,
-        }));
+         projectId: context?.projectId,
+           gitProviderId: project?.gitProviderId || undefined,
+         }));
 
         return { success: true };
       } catch (err) {

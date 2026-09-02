@@ -21,17 +21,33 @@ import { env } from "../../../config/env";
 import type { RequestContext } from "../../../lib/request-context";
 import type { GitHubSource } from "./types";
 
-export async function createGitHubSource(ctx: RequestContext): Promise<GitHubSource> {
+export async function createGitHubSource(
+  ctx: RequestContext,
+  providerId?: string,
+): Promise<GitHubSource> {
+  providerId = providerId ?? ctx.gitProviderId;
   // SaaS: the App service only. Zero gh, no merge, no cloud mode-probe.
   if (env.CLOUD_MODE) {
     const { GitHubAppSource } = await import("./app-source");
     return new GitHubAppSource(ctx, "app");
   }
 
-  // Local: gh-FIRST. Resolve the gh sub-source from a LOCAL token read — do NOT
-  // probe the cloud here. The merge resolves the App side lazily.
+  // 1. Dokploy-style: Check if there's a git-provider for this organization & user
+  if (ctx.organizationId) {
+    const { GitProviderSource } = await import("./git-provider-source");
+    const providerSource = new GitProviderSource(ctx, providerId);
+    if (await providerSource.hasProvider()) {
+      const { LocalGitHubSource } = await import("./local-source");
+      return new LocalGitHubSource(ctx, providerSource);
+    }
+  }
+
+  // 2. Local: gh-FIRST (operator fallback if no git-provider configured for this org)
+  // CRITICAL: Prevent operator token leak to other organizations/members.
+  const { mayUseOperatorCliToken } = await import("../github.token");
+  const canBorrow = await mayUseOperatorCliToken(ctx.userId, ctx.organizationId, "local");
   const { GhCliSource } = await import("./gh-cli-source");
-  const gh = new GhCliSource(ctx.userId);
+  const gh = canBorrow ? new GhCliSource(ctx.userId) : null;
   const { LocalGitHubSource } = await import("./local-source");
-  return new LocalGitHubSource(ctx, (await gh.token()) ? gh : null);
+  return new LocalGitHubSource(ctx, (gh && await gh.token()) ? gh : null);
 }

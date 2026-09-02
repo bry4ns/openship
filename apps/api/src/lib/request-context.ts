@@ -34,6 +34,8 @@ export interface RequestContext {
   // resource-bound route, this is REPLACED with the scoped org id so
   // services automatically see the right tenant.
   organizationId: string;
+  /** Optional account selected for GitHub operations in this request. */
+  gitProviderId?: string;
   role: RequestContextRole;
   membershipId: string;
 

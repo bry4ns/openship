@@ -38,6 +38,7 @@ import type { RequestContext } from "../../../lib/request-context";
 import type {
   GitHubConnectionState,
   GitHubInstallation,
+  MappedAccount,
   MappedRepository,
 } from "../github.types";
 import type { GhCliSource, GhCliStatus } from "./gh-cli-source";
@@ -81,6 +82,14 @@ function ghCliState(status: GhCliStatus): GitHubConnectionState["sources"]["ghCl
   };
 }
 
+export interface LocalGitSubSource {
+  token(): Promise<string | null>;
+  status(): Promise<GhCliStatus>;
+  listAllRepos(): Promise<MappedRepository[]>;
+  listReposForOwner(owner?: string): Promise<MappedRepository[]>;
+  listOwners(): Promise<MappedAccount[]>;
+}
+
 export class LocalGitHubSource implements GitHubSource {
   // Listing-facing label; the App side (cloud-app/app) is resolved lazily and
   // is not reflected here. `mode` is informational — nothing dispatches on it.
@@ -91,7 +100,7 @@ export class LocalGitHubSource implements GitHubSource {
 
   constructor(
     private readonly ctx: RequestContext,
-    private readonly gh: GhCliSource | null,
+    private readonly gh: LocalGitSubSource | null,
   ) {}
 
   /**

@@ -3,6 +3,7 @@ import { endpoints } from "./endpoints";
 
 /** Query for the server-paginated repo list (all optional). */
 export interface RepoListQuery {
+  providerId?: string;
   page?: number;
   perPage?: number;
   search?: string;
@@ -60,6 +61,19 @@ export interface RepoTreeEntry {
   type: "file" | "dir";
 }
 
+/** Dokploy-style Git Provider item for multi-account UI. */
+export interface GitProviderItem {
+  id: string;
+  name: string;
+  providerType: string;
+  githubLogin?: string | null;
+  githubAvatarUrl?: string | null;
+  tokenMethod: "device" | "token";
+  sharedWithOrg: boolean;
+  isCurrentUser: boolean;
+  createdAt: string;
+}
+
 export const githubApi = {
   /** Dashboard home - user info, orgs, recent repos */
   getUserHome: () => api.get<any>(endpoints.github.userHome),
@@ -75,8 +89,8 @@ export const githubApi = {
     ),
 
   /** Repos for a specific GitHub org */
-  getOrgRepos: (owner: string) =>
-    api.get<any>(endpoints.github.orgRepos(owner)),
+  getOrgRepos: (owner: string, providerId?: string) =>
+    api.get<any>(endpoints.github.orgRepos(owner), { params: providerId ? { providerId } : undefined }),
 
   /** Repos for a specific GitHub user. Server-paginated: pass page/perPage/
    *  search/visibility/sort and read the authoritative `count`/`total` back
@@ -88,9 +102,9 @@ export const githubApi = {
 
   /** List a repo's branches (used before a project exists — e.g. the migration
    *  wizard's link-repo step, which can't use projectsApi.getBranches). */
-  listBranches: (owner: string, repo: string) =>
+  listBranches: (owner: string, repo: string, providerId?: string) =>
     api.get<{ data: Array<{ name: string }> }>(
-      endpoints.github.repoBranches(owner, repo),
+      endpoints.github.repoBranches(owner, repo) + (providerId ? `?providerId=${encodeURIComponent(providerId)}` : ""),
     ),
 
   /**
@@ -105,6 +119,21 @@ export const githubApi = {
 
   /** Check GitHub connection status (live, no dedup). */
   getStatus: () => api.get<any>(endpoints.github.status),
+
+  /** List Dokploy-style Git Providers for the current organization */
+  getProviders: () =>
+    api.get<{ providers: GitProviderItem[] }>(endpoints.github.providers),
+
+  /** Toggle whether a Git Provider is shared with other org members */
+  toggleShareProvider: (id: string, shared: boolean) =>
+    api.patch<{ ok: boolean; sharedWithOrg: boolean }>(
+      endpoints.github.toggleShareProvider(id),
+      { shared },
+    ),
+
+  /** Disconnect/remove a Git Provider */
+  deleteProvider: (id: string) =>
+    api.delete<{ ok: boolean }>(endpoints.github.deleteProvider(id)),
 
   /**
    * GitHub connection status, de-duplicated across CONCURRENT callers (Settings

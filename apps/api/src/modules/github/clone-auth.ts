@@ -103,6 +103,12 @@ async function resolveLocalCredential(
   ctx: RequestContext,
   tokenCtx: TokenContext,
 ): Promise<{ token?: string }> {
+  // An explicitly selected account is authoritative. Never let the host
+  // operator's ambient gh credential silently replace it.
+  if (tokenCtx.providerId) {
+    const selected = await tokenFor(ctx, "local", tokenCtx);
+    return selected?.token ? { token: selected.token } : {};
+  }
   const ghToken = await getLocalGhToken();
   if (ghToken) return { token: ghToken };
   const r = await tokenFor(ctx, "local", tokenCtx);
@@ -113,7 +119,9 @@ export async function resolveBuildGitToken(opts: {
   /** Caller's request context. Carries userId + organizationId; org-scoped
    *  App installation lookup uses ctx.organizationId. */
   ctx: RequestContext;
-  projectId: string;
+   projectId: string;
+   /** Explicit org-scoped Git Provider selected by the user. */
+   providerId?: string | null;
   owner?: string | null;
   /** Repo name — threaded to the github-access gate for PER-REPO
    *  authorization (so a member granted only repo X can build X). */
@@ -155,8 +163,9 @@ export async function resolveBuildGitToken(opts: {
   /** Build-log sink for the probe's one-line outcome. Never receives secrets. */
   onLog?: (message: string) => void;
 }): Promise<BuildGitCredential> {
-  const tokenCtx: TokenContext = {
-    projectId: opts.projectId,
+   const tokenCtx: TokenContext = {
+     projectId: opts.projectId,
+     providerId: opts.providerId ?? undefined,
     owner: opts.owner ?? undefined,
     repo: opts.repo ?? undefined,
   };

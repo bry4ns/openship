@@ -16,14 +16,14 @@ interface SyncProjectPublicRoutesInput {
   endpoints?: StoredPublicEndpoint[] | null;
   currentDomains?: Domain[] | null;
   /**
-   * When true, a VERIFIED custom domain is never destroyed by this sync: a row
-   * the desired set omits is kept (not deleted), and a desired route that carries
-   * no port/path never nulls the row's live target. Only the DEPLOY pipeline sets
-   * this — a deploy that resolved to the wrong target (e.g. "local") must not
-   * erase a user's proven custom domain (the Access-URL-regressed-to-localhost
-   * bug). The Domains editor leaves it false so explicit removals/edits still win.
+   * When true, custom-domain configuration is never destroyed by this sync: an
+   * omitted row is kept, and a desired route with no target never nulls its
+   * stored target. Only deployment reconciliation sets this. Verification is a
+   * lifecycle state, not ownership: pending domains are just as user-owned as
+   * verified ones. The Domains editor leaves this false so explicit removals and
+   * edits remain authoritative.
    */
-  preserveVerifiedCustom?: boolean;
+  preserveCustomDomains?: boolean;
 }
 
 interface DesiredProjectRoute {
@@ -34,6 +34,8 @@ interface DesiredProjectRoute {
   isPrimary: boolean;
   redirectTo: string | null;
   redirectStatus: number | null;
+  /** Cloudflare-Tunnel style ingress: TLS upstream, plain-HTTP vhost here. */
+  externalIngress: boolean;
 }
 
 /**
@@ -103,6 +105,7 @@ function desiredProjectRoutes(endpoints?: StoredPublicEndpoint[] | null): Desire
       isPrimary: index === 0,
       redirectTo: redirect.redirectTo,
       redirectStatus: redirect.redirectStatus,
+      externalIngress: endpoint.externalIngress === true,
     } satisfies DesiredProjectRoute];
   });
 }
@@ -126,10 +129,10 @@ export async function syncProjectPublicRoutes(
 
   for (const domain of existingDomains) {
     if (!desiredByHostname.has(domain.hostname.toLowerCase())) {
-      // Keep a verified custom domain the deploy didn't mention — see
-      // preserveVerifiedCustom. A row absent from the desired set is otherwise an
-      // explicit removal, which the editor path (flag off) still performs.
-      if (input.preserveVerifiedCustom && domain.domainType === "custom" && domain.verified) {
+      // A deploy payload describes this release, not the user's durable domain
+      // configuration. Keep every custom row it omits, including pending rows;
+      // only the editor path (flag off) may make omission mean explicit removal.
+      if (input.preserveCustomDomains && domain.domainType === "custom") {
         continue;
       }
       await repos.domain.remove(domain.id);
@@ -147,13 +150,15 @@ export async function syncProjectPublicRoutes(
     // decides verification for endpoint-created rows — the old behavior
     // silently marked custom domains verified with no DNS check.
     const verificationFields =
-      route.domainType === "custom"
+      route.domainType === "custom" && !route.externalIngress
         ? {
             status: "pending" as const,
             verified: false,
             verificationToken: generateToken(route.hostname),
           }
-        : { status: "active" as const, verified: true, verifiedAt: new Date() };
+        : // Free subdomains are host-managed, and externalIngress rows prove
+          // ownership by construction (we wrote the DNS record ourselves).
+          { status: "active" as const, verified: true, verifiedAt: new Date() };
 
     if (!existing) {
       const globalExisting = await repos.domain.findByHostname(route.hostname);
@@ -191,6 +196,7 @@ export async function syncProjectPublicRoutes(
           isPrimary: route.isPrimary,
           redirectTo: route.redirectTo,
           redirectStatus: route.redirectStatus,
+          externalIngress: route.externalIngress,
           ...verificationFields,
         });
       } catch (err: any) {
@@ -213,6 +219,7 @@ export async function syncProjectPublicRoutes(
                 targetPath: route.targetPath,
                 domainType: route.domainType,
                 isPrimary: route.isPrimary,
+                externalIngress: route.externalIngress,
                 ...verificationFields,
               });
             }
@@ -234,7 +241,8 @@ export async function syncProjectPublicRoutes(
     // exactly what regressed the Access URL to localhost. An explicit new value is
     // still applied; only a "no target" desired route is treated as "leave as-is".
     const protectTarget =
-      input.preserveVerifiedCustom && existing.verified && (existing.domainType ?? route.domainType) === "custom";
+      input.preserveCustomDomains &&
+      (existing.domainType ?? route.domainType) === "custom";
     if ((existing.serviceId ?? null) !== null) patch.serviceId = null;
     if (
       (existing.targetPort ?? null) !== (route.targetPort ?? null) &&
@@ -249,6 +257,21 @@ export async function syncProjectPublicRoutes(
       patch.targetPath = route.targetPath ?? null;
     }
     if ((existing.domainType ?? null) !== route.domainType) patch.domainType = route.domainType;
+
+    // A tunnel-attached hostname arrives pre-verified (we wrote its DNS record
+    // ourselves), so adopting the flag promotes a pending/custom row instead of
+    // leaving it blocked behind a TXT check that will never be satisfied.
+    if (route.externalIngress && !existing.externalIngress) {
+      patch.externalIngress = true;
+      if (!existing.verified || existing.status !== "active") {
+        patch.status = "active";
+        patch.verified = true;
+        patch.verifiedAt = existing.verifiedAt ?? new Date();
+      }
+    }
+    if (route.externalIngress !== Boolean(existing.externalIngress) && !route.externalIngress) {
+      patch.externalIngress = false;
+    }
     if (existing.isPrimary !== route.isPrimary) patch.isPrimary = route.isPrimary;
     // The submitted endpoint list is authoritative for the redirect, so an OMITTED
     // one clears it — that's how "stop redirecting, serve the app here" is

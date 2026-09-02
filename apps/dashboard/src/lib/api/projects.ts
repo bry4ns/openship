@@ -1,7 +1,14 @@
 import { api } from "./client";
 import type { PrepareComposeService, PrepareProjectResponse } from "./deploy";
-import type { RoutingConfig, RouteRuleSpec, ProxySettings, OpenshipReadiness, WorkloadType } from "@repo/core";
+import type {
+  RoutingConfig,
+  RouteRuleSpec,
+  ProxySettings,
+  OpenshipReadiness,
+  WorkloadType,
+} from "@repo/core";
 import { endpoints } from "./endpoints";
+import type { ReleaseImageSource } from "../release-image-source";
 
 /* ------------------------------------------------------------------ */
 /*  Projects API                                                      */
@@ -247,6 +254,7 @@ export const projectsApi = {
     defaultRollbackStrategy?: "git" | "snapshot";
     slug?: string;
     gitOwner?: string;
+    gitProviderId?: string;
     /** Source discriminator; "upload" for browser folder-upload projects. */
     gitProvider?: string;
     gitRepo?: string;
@@ -313,8 +321,7 @@ export const projectsApi = {
   getLocal: () => api.get<{ success: boolean; projects: any[] }>(endpoints.projects.local),
 
   /** Scan a local directory for framework detection */
-  scan: (path: string) =>
-    api.post<ScanProjectResponse>(endpoints.projects.scan, { path }),
+  scan: (path: string) => api.post<ScanProjectResponse>(endpoints.projects.scan, { path }),
 
   /** Import a local folder as a project */
   importLocal: (data: {
@@ -420,6 +427,10 @@ export const projectsApi = {
   update: (id: string | number, fields: Record<string, unknown>) =>
     api.patch<any>(endpoints.projects.item(id), fields),
 
+  /** Assign or remove the organization folder without widening the fleet UI's patch shape. */
+  setFolder: (id: string | number, folderId: string | null) =>
+    api.patch<any>(endpoints.projects.item(id), { folderId }),
+
   /**
    * Read-only edge health for the project's server: is OpenResty already the
    * edge on 80/443 (`ready`/`classification === "ours"`), or does it need setup?
@@ -451,11 +462,7 @@ export const projectsApi = {
    *   - token: string     → encrypt + store
    */
   updateCloneToken: (id: string | number, body: { token: string | null }) =>
-    api.patch<{ hasToken: boolean; setAt: string | null }>(
-      endpoints.projects.cloneToken(id),
-      body,
-    ),
-
+    api.patch<{ hasToken: boolean; setAt: string | null }>(endpoints.projects.cloneToken(id), body),
 
   /**
    * Update build + runtime options (any subset). Also the atomic config-save
@@ -512,7 +519,9 @@ export const projectsApi = {
   /** Retry the free .opsh.io edge-route sync (no rebuild). ok:false + warning
    *  when it still can't sync; clears the routing warning on success. */
   retryRouting: (id: string | number) =>
-    api.post<{ ok: boolean; warning?: string; error?: string }>(endpoints.projects.retryRouting(id)),
+    api.post<{ ok: boolean; warning?: string; error?: string }>(
+      endpoints.projects.retryRouting(id),
+    ),
 
   /**
    * Everything waiting on a human for this project — a blocked deploy, a deploy
@@ -568,7 +577,12 @@ export const projectsApi = {
    *  (Cloudflare Tunnel / LB): verify via TXT only, no certbot, plain-HTTP route. */
   connectDomain: (
     id: string | number,
-    body: { domain: string; includeWww: boolean; externalIngress?: boolean },
+    body: {
+      domain: string;
+      includeWww: boolean;
+      externalIngress?: boolean;
+      sslChallenge?: "http-01" | "dns-01";
+    },
   ) => api.post<any>(endpoints.projects.connect(id), body),
 
   /**
@@ -603,8 +617,15 @@ export const projectsApi = {
   /** Link a GitHub repo to an existing project + register webhook */
   linkRepo: (
     id: string | number,
-    body: { owner: string; repo: string; branch?: string; installationId?: number },
+    body: { owner: string; repo: string; branch?: string; installationId?: number; providerId?: string },
   ) => api.post<any>(endpoints.projects.gitLink(id), body),
+
+  /** Atomically transition a single-app project to a tracked prebuilt image. */
+  setReleaseImageSource: (id: string | number, source: ReleaseImageSource) =>
+    api.put<{ data: Record<string, unknown> & { releaseSource: ReleaseImageSource } }>(
+      endpoints.projects.releaseImageSource(id),
+      source,
+    ),
 
   /** List branches */
   getBranches: (id: string | number) => api.get<any>(endpoints.projects.branches(id)),

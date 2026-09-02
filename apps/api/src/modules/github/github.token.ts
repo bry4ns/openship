@@ -78,6 +78,7 @@ import type { RequestContext } from "../../lib/request-context";
 export type GitHubPurpose = "local" | "remote";
 
 export type GitHubTokenSource =
+  | "git-provider"     // Dokploy-style per-org per-user git_providers row
   | "project"          // per-project clone_token_encrypted
   | "user-pat"         // user_settings clone_token_encrypted (cloneTokenAsDefault=true)
   | "gh-cli"           // local gh CLI token
@@ -95,6 +96,8 @@ export interface TokenResult {
  * NOT in this interface.
  */
 export interface TokenContext {
+  /** Specific git provider ID (for Dokploy-style multi-account selection). */
+  providerId?: string;
   /** Repo owner — required for App installation token resolution. */
   owner?: string;
   /** Repo name — enables PER-REPO authorization in the github-access
@@ -239,6 +242,63 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
     probe: async (c) => Boolean(await SPECS["gh-cli"].resolve(c).catch(() => null)),
   },
 
+  "git-provider": {
+    kind: "git-provider",
+    shippable: true,
+    resolve: async (c) => {
+      if (!borrowableForOp(c)) return null;
+      if (!c.organizationId) return null;
+      const { repos } = await import("@repo/db");
+      const { decrypt } = await import("../../lib/encryption");
+
+      // 1. If explicit providerId was requested (e.g. from Deploy Wizard), resolve it
+      if (c.tokenCtx.providerId) {
+        const p = await repos.gitProvider?.findAccessible(
+          c.tokenCtx.providerId,
+          c.organizationId,
+          c.userId || "",
+        );
+        if (p?.tokenEncrypted) {
+          return decrypt(p.tokenEncrypted);
+        }
+        return null;
+      }
+
+      // 2. Otherwise find accessible providers for the user in this org
+      if (c.userId) {
+        const list = (await repos.gitProvider?.listForUser(c.organizationId, c.userId)) ?? [];
+        // Current user's own token takes precedence
+        const own = list.find((p) => p.userId === c.userId);
+        if (own?.tokenEncrypted) {
+          return decrypt(own.tokenEncrypted);
+        }
+        // Shared token in this org as fallback
+        const shared = list.find((p) => p.sharedWithOrg);
+        if (shared?.tokenEncrypted) {
+          return decrypt(shared.tokenEncrypted);
+        }
+      }
+      return null;
+    },
+    probe: async (c) => {
+      if (!c.organizationId) return false;
+      const { repos } = await import("@repo/db");
+      if (c.tokenCtx.providerId) {
+        const p = await repos.gitProvider?.findAccessible(
+          c.tokenCtx.providerId,
+          c.organizationId,
+          c.userId || "",
+        );
+        return Boolean(p);
+      }
+      if (c.userId) {
+        const list = (await repos.gitProvider?.listForUser(c.organizationId, c.userId)) ?? [];
+        return list.length > 0;
+      }
+      return false;
+    },
+  },
+
   /* NOTE for anyone adding a credential kind below: if it is NOT the caller's own
    * (an operator/instance/project credential), guard `resolve` with
    * `borrowableForOp(c)` — see that function for why. */
@@ -344,15 +404,15 @@ type GitHubPlatform = "saas" | "selfhosted";
 
 export const CHAINS: Record<GitHubPlatform, Record<GitHubPurpose, GitHubTokenSource[]>> = {
   saas: {
-    local: ["project", "user-pat", "app-installation", "user-oauth"],
-    remote: ["project", "user-pat", "app-installation", "user-oauth"],
+    local: ["git-provider", "project", "user-pat", "app-installation", "user-oauth"],
+    remote: ["git-provider", "project", "user-pat", "app-installation", "user-oauth"],
   },
   selfhosted: {
-    // gh-cli first: least configuration, and it reaches any repo the operator's
-    // account can see, whereas the App needs an install on that owner.
-    local: ["gh-cli", "app-installation", "project", "user-pat", "user-oauth"],
-    // No gh-cli (not shippable) and deliberately no OAuth tail either.
-    remote: ["project", "user-pat", "app-installation"],
+    // git-provider first: Dokploy-style per-user/org accounts.
+    // gh-cli second: operator fallback if no git-provider configured.
+    local: ["git-provider", "gh-cli", "app-installation", "project", "user-pat", "user-oauth"],
+    // shippable credentials for remote build hosts (includes git-provider):
+    remote: ["git-provider", "project", "user-pat", "app-installation"],
   },
 };
 
@@ -549,7 +609,7 @@ async function isCliOperatorAllowed(userId: string): Promise<boolean> {
  * github.local-auth helpers (`listLocalGhRepos`/`listLocalGhOrgs`) — it
  * deliberately never passes through here.
  */
-async function mayUseOperatorCliToken(
+export async function mayUseOperatorCliToken(
   userId: string,
   organizationId: string | undefined,
   purpose: GitHubPurpose,

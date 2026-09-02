@@ -31,9 +31,15 @@ describe("UpdateProjectBody — mass-assignment allow-list", () => {
   });
 
   it("still allows the documented editable fields (no accidental over-restriction)", () => {
-    for (const allowed of ["name", "gitBranch", "port", "publicEndpoints", "routingConfig"]) {
+    for (const allowed of ["name", "gitBranch", "port", "publicEndpoints", "routingConfig", "folderId"]) {
       expect(keys).toContain(allowed);
     }
+  });
+
+  it("accepts filing and unfiling a project", () => {
+    expect(Value.Check(UpdateProjectBody, { folderId: "folder_1" })).toBe(true);
+    expect(Value.Check(UpdateProjectBody, { folderId: null })).toBe(true);
+    expect(Value.Check(UpdateProjectBody, { folderId: "" })).toBe(false);
   });
 });
 
@@ -64,5 +70,24 @@ describe("publicEndpoints — empty set", () => {
     expect(create(tooMany)).toBe(false);
     expect(update(tooMany)).toBe(false);
     expect(ensure(tooMany)).toBe(false);
+  });
+});
+
+describe("EnsureProjectBody — compose build args (#689)", () => {
+  it("accepts the prepare response verbatim, including interpolation provenance", () => {
+    expect(
+      Value.Check(EnsureProjectBody, {
+        name: "my-stack",
+        services: [
+          {
+            name: "api",
+            build: ".",
+            dockerfile: "Dockerfile",
+            buildArgs: { APP_PACKAGE: "@myorg/api", CHANNEL: "${CHANNEL:-stable}" },
+            advanced: { buildArgTemplateKeys: ["CHANNEL"] },
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 });

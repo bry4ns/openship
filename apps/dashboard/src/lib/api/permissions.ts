@@ -78,6 +78,6 @@ export const permissionsApi = {
   replaceGrants: (userId: string, grants: PickerGrant[]) =>
     api.put<{ data?: ResourceGrant[] }>(endpoints.permissions.grants, { userId, grants }),
 
-  inviteWithGrants: (body: { email: string; role: string; grants: PickerGrant[] }) =>
-    api.post(endpoints.permissions.inviteWithGrants, body),
+  inviteWithGrants: (body: { email: string; role: string; grants: PickerGrant[]; delivery?: "email" | "link" }) =>
+    api.post<{ data?: { inviteUrl?: string } }>(endpoints.permissions.inviteWithGrants, body),
 };

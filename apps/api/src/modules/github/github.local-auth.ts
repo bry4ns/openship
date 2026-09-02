@@ -7,7 +7,8 @@
  *
  * Resolution order:
  *   1. `gh auth token` subprocess (works on any OS where `gh` is in PATH)
- *   2. Read `~/.config/gh/hosts.yml` directly (fallback when `gh` binary is missing)
+ *   2. Read the single `hosts.yml` selected by GitHub CLI's config precedence
+ *      (fallback when the `gh` binary is missing)
  *
  * This module also exposes `getLocalGhStatus()` - a convenience that validates
  * the resolved token against the GitHub API and returns the user profile.
@@ -29,7 +30,7 @@
 import { execFile } from "child_process";
 import { readFile } from "fs/promises";
 import { homedir } from "os";
-import { join } from "path";
+import { join, win32 } from "path";
 import { createOAuthDeviceAuth } from "@octokit/auth-oauth-device";
 import { repos } from "@repo/db";
 import { env } from "../../config/env";
@@ -112,17 +113,47 @@ async function readStoredDeviceToken(): Promise<string | null> {
  * Persist (or clear) the device-flow token. Encrypted at rest with the same key
  * as every other stored secret, and mirrored into the short cache so the sign-in
  * takes effect without waiting on a read-through.
+ *
+ * PER-USER FIX: When userId is provided, the token is stored in user_settings
+ * (per-user) instead of instance_settings (shared singleton). This ensures each
+ * user gets their own GitHub credential when multiple users share the same VPS.
+ * The instance_settings fallback is kept for backward compatibility.
  */
 export async function setStoredDeviceToken(
   token: string | null,
-  method: "device" | "token" = "device",
+  method: "device" | "token" | { userId: string } = "device",
 ): Promise<void> {
+  // Resolve userId and method from the overloaded parameter
+  let resolvedUserId: string | undefined;
+  let resolvedMethod: "device" | "token";
+  if (typeof method === "object" && "userId" in method) {
+    resolvedUserId = method.userId;
+    resolvedMethod = "device";
+  } else {
+    resolvedMethod = method;
+  }
+
+  // PER-USER: Store in user_settings when userId is available
+  if (resolvedUserId) {
+    try {
+      await repos.settings.update(resolvedUserId, {
+        cloneTokenEncrypted: token ? encrypt(token) : null,
+        cloneTokenSetAt: token ? new Date() : null,
+        cloneTokenAsDefault: !!token,
+      });
+    } catch (err) {
+      systemDebug("github", `per-user token store failed: ${safeErrorMessage(err)}`);
+    }
+  }
+
+  // Also keep instance_settings for backward compatibility (operator's own token)
+  // and as fallback for code paths that don't have userId context
   await repos.instanceSettings.upsert(
     token
       ? {
           ghDeviceTokenEncrypted: encrypt(token),
           ghDeviceTokenSetAt: new Date(),
-          ghDeviceTokenMethod: method,
+          ghDeviceTokenMethod: resolvedMethod,
         }
       : { ghDeviceTokenEncrypted: null, ghDeviceTokenSetAt: null, ghDeviceTokenMethod: null },
   );
@@ -336,7 +367,9 @@ const GH_FALLBACK_PATHS = [
 /** One-shot exec attempt — resolves to the trimmed stdout on success,
  *  or an error object the caller can log. Used to walk fallback paths
  *  without burying the actual ENOENT/EPERM under a silent null. */
-function tryGhExec(bin: string): Promise<{ token: string } | { error: NodeJS.ErrnoException; stderr?: string }> {
+function tryGhExec(
+  bin: string,
+): Promise<{ token: string } | { error: NodeJS.ErrnoException; stderr?: string }> {
   return new Promise((resolve) => {
     execFile(bin, ["auth", "token"], { timeout: 10_000 }, (err, stdout, stderr) => {
       if (err) return resolve({ error: err as NodeJS.ErrnoException, stderr: stderr?.toString() });
@@ -399,48 +432,82 @@ async function ghAuthTokenViaCli(): Promise<string | null> {
   return null;
 }
 
-/**
- * Read token from the gh CLI config file. Tries (in order):
- *   - $GH_CONFIG_DIR/hosts.yml (explicit override)
- *   - $XDG_CONFIG_HOME/gh/hosts.yml (XDG spec)
- *   - ~/.config/gh/hosts.yml (default)
- *
- * Logs the path it actually attempted on failure so operators can see
- * the resolved location.
- */
-async function ghAuthTokenViaConfig(): Promise<string | null> {
-  const candidates: string[] = [];
-  if (process.env.GH_CONFIG_DIR) candidates.push(join(process.env.GH_CONFIG_DIR, "hosts.yml"));
-  if (process.env.XDG_CONFIG_HOME)
-    candidates.push(join(process.env.XDG_CONFIG_HOME, "gh", "hosts.yml"));
-  candidates.push(join(homedir(), ".config", "gh", "hosts.yml"));
+export interface GhConfigEnvironment {
+  GH_CONFIG_DIR?: string;
+  XDG_CONFIG_HOME?: string;
+  AppData?: string;
+  APPDATA?: string;
+}
 
-  for (const path of candidates) {
-    try {
-      const raw = await readFile(path, "utf-8");
-      // Simple line-by-line YAML parse — look for `oauth_token:` under `github.com:`
-      const ghSection = raw.split(/\n/).reduce<{ inGithub: boolean; token: string | null }>(
-        (acc, line) => {
-          if (/^github\.com:/i.test(line.trim())) acc.inGithub = true;
-          else if (/^\S/.test(line)) acc.inGithub = false;
-          if (acc.inGithub) {
-            const m = line.match(/^\s+oauth_token:\s*(.+)/);
-            if (m && !acc.token) acc.token = m[1].trim();
-          }
-          return acc;
-        },
-        { inGithub: false, token: null },
-      );
-      if (ghSection.token) {
-        systemDebug("gh-cli", `resolved token from ${path}`);
-        return ghSection.token;
-      }
-      systemDebug("gh-cli", `${path}: parsed but no oauth_token for github.com`);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT") {
-        systemDebug("gh-cli", `${path}: ${code ?? "read error"}`);
-      }
+/**
+ * The one `hosts.yml` location GitHub CLI would select.
+ *
+ * Overrides are alternatives, not a fallback chain: once an operator isolates
+ * the process with `GH_CONFIG_DIR` (or XDG), a missing/tokenless file must not
+ * disclose another user's credential from the default home directory (#687).
+ */
+export function resolveGhHostsPath(
+  environment: GhConfigEnvironment = process.env,
+  homeDirectory: string = homedir(),
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const pathJoin = platform === "win32" ? win32.join : join;
+  if (environment.GH_CONFIG_DIR) {
+    return pathJoin(environment.GH_CONFIG_DIR, "hosts.yml");
+  }
+  if (environment.XDG_CONFIG_HOME) {
+    return pathJoin(environment.XDG_CONFIG_HOME, "gh", "hosts.yml");
+  }
+  const appData = environment.AppData || environment.APPDATA;
+  if (platform === "win32" && appData) {
+    return win32.join(appData, "GitHub CLI", "hosts.yml");
+  }
+  return pathJoin(homeDirectory, ".config", "gh", "hosts.yml");
+}
+
+export interface GhConfigLookupOptions {
+  environment?: GhConfigEnvironment;
+  homeDirectory?: string;
+  platform?: NodeJS.Platform;
+  read?: (path: string, encoding: BufferEncoding) => Promise<string>;
+}
+
+/** Read a token from exactly the authoritative GitHub CLI config location. */
+export async function ghAuthTokenViaConfig(
+  options: GhConfigLookupOptions = {},
+): Promise<string | null> {
+  const path = resolveGhHostsPath(
+    options.environment ?? process.env,
+    options.homeDirectory ?? homedir(),
+    options.platform ?? process.platform,
+  );
+  const reader =
+    options.read ?? ((file: string, encoding: BufferEncoding) => readFile(file, encoding));
+
+  try {
+    const raw = await reader(path, "utf-8");
+    // Simple line-by-line YAML parse — look for `oauth_token:` under `github.com:`
+    const ghSection = raw.split(/\n/).reduce<{ inGithub: boolean; token: string | null }>(
+      (acc, line) => {
+        if (/^github\.com:/i.test(line.trim())) acc.inGithub = true;
+        else if (/^\S/.test(line)) acc.inGithub = false;
+        if (acc.inGithub) {
+          const m = line.match(/^\s+oauth_token:\s*(.+)/);
+          if (m && !acc.token) acc.token = m[1].trim();
+        }
+        return acc;
+      },
+      { inGithub: false, token: null },
+    );
+    if (ghSection.token) {
+      systemDebug("gh-cli", `resolved token from ${path}`);
+      return ghSection.token;
+    }
+    systemDebug("gh-cli", `${path}: parsed but no oauth_token for github.com`);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      systemDebug("gh-cli", `${path}: ${code ?? "read error"}`);
     }
   }
   return null;
@@ -606,12 +673,47 @@ async function runDeviceFlow(
  * token is cached into the gh-cli token store so `getLocalGhToken()` picks it
  * up. Requires `GITHUB_CLIENT_ID`. No-op in cloud modes.
  */
-export async function startDeviceFlow(userId: string): Promise<Verification> {
-  // Persist, don't just cache. See setStoredDeviceToken / the schema note on
-  // instance_settings.ghDeviceTokenEncrypted: a cache-only token expired after 8
-  // hours into fallbacks that don't exist in a container, silently signing the
-  // operator out of a login they completed in the browser.
-  return runDeviceFlow(userId, (token) => setStoredDeviceToken(token));
+export async function startDeviceFlow(
+  userId: string,
+  organizationId?: string,
+): Promise<Verification> {
+  const flowKey = organizationId ? `${userId}:${organizationId}` : userId;
+  return runDeviceFlow(flowKey, async (token) => {
+    if (organizationId) {
+      try {
+        let login = "GitHub Account";
+        let avatarUrl: string | null = null;
+        const res = await fetch("https://api.github.com/user", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        });
+        if (res.ok) {
+          const u = (await res.json()) as { login: string; avatar_url: string };
+          login = u.login;
+          avatarUrl = u.avatar_url;
+        }
+        await repos.gitProvider.upsert({
+          organizationId,
+          userId,
+          name: `@${login}`,
+          providerType: "github",
+          githubLogin: login,
+          githubAvatarUrl: avatarUrl,
+          tokenEncrypted: encrypt(token),
+          tokenMethod: "device",
+          sharedWithOrg: false,
+        });
+      } catch (err) {
+        systemDebug("github", `failed to save gitProvider from device flow: ${safeErrorMessage(err)}`);
+      }
+      return;
+    }
+    // PER-USER FIX: store per-user when no org context (shared VPS)
+    await setStoredDeviceToken(token, { userId });
+  });
 }
 
 /**
@@ -631,12 +733,15 @@ export async function startServerDeviceFlow(
  * Check the status of an active device flow for a user.
  * Returns null if no flow exists.
  */
-export function getDeviceFlowStatus(userId: string): {
+export function getDeviceFlowStatus(flowKey: string): {
   status: "waiting" | "complete" | "error";
   token?: string;
   error?: string;
 } | null {
-  const state = activeFlows.get(userId);
+  let state = activeFlows.get(flowKey);
+  if (!state && flowKey.includes(":")) {
+    state = activeFlows.get(flowKey.split(":")[0]);
+  }
   if (!state || state.status === "pending") return null;
 
   const result: { status: "waiting" | "complete" | "error"; token?: string; error?: string } = {
@@ -645,12 +750,11 @@ export function getDeviceFlowStatus(userId: string): {
 
   if (state.status === "complete" && state.token) {
     result.token = state.token;
-    // Clean up after the token has been retrieved
-    activeFlows.delete(userId);
+    activeFlows.delete(flowKey);
   }
   if (state.status === "error") {
     result.error = state.error ?? "Unknown error";
-    activeFlows.delete(userId);
+    activeFlows.delete(flowKey);
   }
 
   return result;
@@ -659,6 +763,9 @@ export function getDeviceFlowStatus(userId: string): {
 /**
  * Cancel an active device flow for a user.
  */
-export function cancelDeviceFlow(userId: string): void {
-  activeFlows.delete(userId);
+export function cancelDeviceFlow(flowKey: string): void {
+  activeFlows.delete(flowKey);
+  if (flowKey.includes(":")) {
+    activeFlows.delete(flowKey.split(":")[0]);
+  }
 }

@@ -40,6 +40,7 @@ import { ProductViewSetting } from "./_components/ProductViewSetting";
 import { MailModeSetting } from "./_components/MailModeSetting";
 import { UpdatesTab } from "./_components/UpdatesTab";
 import { InfrastructureTab } from "./_components/InfrastructureTab";
+import { CloudflareTab } from "./_components/CloudflareTab";
 import { TeamTab } from "./_components/TeamTab";
 import { NotificationsTab } from "./_components/NotificationsTab";
 import { EmailSettings } from "./_components/EmailSettings";
@@ -170,6 +171,7 @@ function SettingsPageInner() {
           {activeTab === "credentials" && <Credentials />}
 
           {activeTab === "cloud" && selfHosted && <CloudConnection />}
+          {activeTab === "cloudflare" && <CloudflareTab />}
 
           {/* Infrastructure — the servers this install runs: edge/mail container
               versions across the fleet + scan + auto-update toggle, and the

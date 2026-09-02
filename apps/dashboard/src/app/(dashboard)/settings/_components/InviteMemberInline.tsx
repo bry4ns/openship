@@ -14,7 +14,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Loader2, Users as UsersIcon, Shield, Lock, Send, Cloud, AlertTriangle } from "lucide-react";
+import { Loader2, Users as UsersIcon, Shield, Lock, Send, Cloud, AlertTriangle, Link2, Copy, Check } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { useToast } from "@/context/ToastContext";
 import { systemApi } from "@/lib/api/system";
@@ -32,6 +32,7 @@ import { useI18n, interpolate } from "@/components/i18n-provider";
 
 type MemberRole = "owner" | "admin" | "member" | "restricted";
 type MailSource = "platform" | "cloud";
+type InviteDelivery = "email" | "link";
 
 const orgClient = (authClient as unknown as {
   organization: {
@@ -65,6 +66,9 @@ export function InviteMemberInline({
   const [mailSource, setMailSource] = useState<MailSource>(initialMailSource);
   const [savingMailSource, setSavingMailSource] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [delivery, setDelivery] = useState<InviteDelivery>("email");
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Can the selected transport actually deliver the invite email?
   //   - "platform" (your mail system) → the instance can send (SMTP / mail
@@ -90,6 +94,7 @@ export function InviteMemberInline({
   // Block send when the chosen transport can't deliver — the invite link would
   // never reach the person. Only blocks on a KNOWN-bad state (never on unknown).
   const transportBlocked =
+    delivery === "email" &&
     selfHosted &&
     ((mailSource === "platform" && emailDeliverable === false) ||
       (mailSource === "cloud" && !cloudConnected));
@@ -134,8 +139,19 @@ export function InviteMemberInline({
           });
           if (!ok) return;
         }
-        await permissionsApi.inviteWithGrants({ email: email.trim(), role, grants });
+        const response = await permissionsApi.inviteWithGrants({ email: email.trim(), role, grants, delivery });
+        if (delivery === "link") {
+          setInviteLink(response.data?.inviteUrl ?? null);
+          onInvited();
+          return;
+        }
       } else {
+        if (delivery === "link") {
+          const response = await permissionsApi.inviteWithGrants({ email: email.trim(), role, grants: [], delivery });
+          setInviteLink(response.data?.inviteUrl ?? null);
+          onInvited();
+          return;
+        }
         const res = await orgClient.inviteMember({ email: email.trim(), role });
         if (res.error) {
           showToast(res.error.message ?? t.settings.inviteMember.toast.failedSend, "error", t.settings.common.toast.invitation);
@@ -177,11 +193,36 @@ export function InviteMemberInline({
             className="w-full px-3 py-2 bg-muted/30 border border-border/50 rounded-xl text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
           />
 
-          {/* Send via — self-hosted only (SaaS always relays via its own infra).
+          <div className="space-y-2 pt-3">
+            <label className="text-sm font-medium text-foreground block">{t.settings.inviteMember.delivery}</label>
+            <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/50 bg-muted/25 p-1">
+              <SendSegment
+                icon={Send}
+                label={t.settings.inviteMember.sendByEmail}
+                tone="pending"
+                selected={delivery === "email"}
+                disabled={inviting}
+                onClick={() => setDelivery("email")}
+              />
+              <SendSegment
+                icon={Link2}
+                label={t.settings.inviteMember.copyLink}
+                tone="pending"
+                selected={delivery === "link"}
+                disabled={inviting}
+                onClick={() => setDelivery("link")}
+              />
+            </div>
+            {delivery === "link" && (
+              <p className="px-1 text-xs text-muted-foreground">{t.settings.inviteMember.copyLinkDesc}</p>
+            )}
+          </div>
+
+           {/* Send via — self-hosted only (SaaS always relays via its own infra).
               A segmented switch: recessed track, raised active pill. A status dot
               per option lets you compare deliverability at a glance; a single
               contextual line below handles the active option's fix. */}
-          {selfHosted && (
+           {selfHosted && delivery === "email" && (
             <div className="space-y-2 pt-3">
               <label className="text-sm font-medium text-foreground block">{t.settings.inviteMember.sendVia}</label>
               <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/50 bg-muted/25 p-1">
@@ -307,7 +348,32 @@ export function InviteMemberInline({
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-2">
+        {inviteLink && (
+          <div className="rounded-xl border border-primary/20 bg-primary/[0.05] p-3 space-y-2">
+            <p className="text-sm font-medium text-foreground">{t.settings.inviteMember.linkReady}</p>
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={inviteLink}
+                className="min-w-0 flex-1 rounded-lg border border-border/50 bg-background px-3 py-2 text-xs text-foreground"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(inviteLink);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground"
+              >
+                {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                {copied ? t.settings.inviteMember.copied : t.settings.inviteMember.copyLink}
+              </button>
+            </div>
+          </div>
+        )}
+
+       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
           onClick={onClose}
@@ -323,7 +389,7 @@ export function InviteMemberInline({
           className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
           {inviting && <Loader2 className="size-4 animate-spin" />}
-          {t.settings.inviteMember.sendInvite}
+          {delivery === "link" ? t.settings.inviteMember.createLink : t.settings.inviteMember.sendInvite}
         </button>
       </div>
     </div>

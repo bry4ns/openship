@@ -1,3 +1,5 @@
+import type { ReleaseSource } from "@repo/core";
+
 /**
  * Shared domain types used across the dashboard.
  *
@@ -9,6 +11,8 @@ export interface Project {
   id: string;
   name: string;
   slug: string;
+  /** Organization project folder; null means the uncategorized bucket. */
+  folderId?: string | null;
 
   /* ── Source ──────────────────────────────────────────────── */
   localPath?: string | null;
@@ -16,6 +20,8 @@ export interface Project {
   gitOwner?: string | null;
   gitRepo?: string | null;
   gitBranch?: string | null;
+  /** Prebuilt release/archive or tracked registry-image source. */
+  releaseSource?: ReleaseSource | null;
 
   /* ── Build configuration ────────────────────────────────── */
   framework: string;
