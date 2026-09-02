@@ -7,12 +7,6 @@ export {
   type NewGitInstallation,
 } from "./git-installation.repo";
 export {
-  createGitProviderRepo,
-  type GitProvider,
-  type NewGitProvider,
-  type CreateGitProviderInput,
-} from "./git-provider.repo";
-export {
   createGithubInstallStateRepo,
   type GithubInstallState,
   type NewGithubInstallState,
@@ -26,6 +20,12 @@ export {
   type CreatePatInput,
 } from "./personal-access-token.repo";
 export { createOAuthRepo } from "./oauth.repo";
+export {
+  createGitProviderRepo,
+  type GitProvider,
+  type NewGitProvider,
+  type CreateGitProviderInput,
+} from "./git-provider.repo";
 export {
   createProjectGroupRepo,
   type ProjectGroup,

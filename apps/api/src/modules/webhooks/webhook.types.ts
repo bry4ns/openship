@@ -14,6 +14,8 @@ export type WebhookProviderName = "github";
 export interface WebhookVerifyResult {
   valid: boolean;
   error?: string;
+  /** Provider-specific routing scope established by signature verification. */
+  scope?: { projectIds?: string[]; installationId?: number };
 }
 
 /** Standardised result returned by any webhook handler */
@@ -40,5 +42,9 @@ export interface WebhookProvider {
     payload: string | Buffer,
     headers: Record<string, string>,
   ): WebhookVerifyResult | Promise<WebhookVerifyResult>;
-  handle(payload: unknown, headers: Record<string, string>): Promise<WebhookHandlerResult>;
+  handle(
+    payload: unknown,
+    headers: Record<string, string>,
+    scope?: WebhookVerifyResult["scope"],
+  ): Promise<WebhookHandlerResult>;
 }

@@ -752,8 +752,9 @@ export function useDeploymentBuild(
       // Step 1: Ensure project exists
       const projectData = await projectsApi.ensure({
         projectId: config.projectId || undefined,
-        name: config.projectName || config.repo || config.localPath?.split("/").pop() || "project",
-        gitOwner: isSourceless ? undefined : config.owner || undefined,
+         name: config.projectName || config.repo || config.localPath?.split("/").pop() || "project",
+         gitProviderId: isSourceless ? undefined : config.gitProviderId,
+         gitOwner: isSourceless ? undefined : config.owner || undefined,
         gitRepo: isSourceless ? undefined : config.repo || undefined,
         gitBranch: isSourceless ? undefined : config.branch || undefined,
         localPath: config.localPath || undefined,

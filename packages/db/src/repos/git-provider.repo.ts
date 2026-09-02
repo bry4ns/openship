@@ -1,7 +1,7 @@
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { Database } from "../client";
-import { gitProviders } from "../schema";
+import { gitProviders, member } from "../schema";
 
 export type GitProvider = typeof gitProviders.$inferSelect;
 export type NewGitProvider = typeof gitProviders.$inferInsert;
@@ -20,6 +20,24 @@ export interface CreateGitProviderInput {
 }
 
 export function createGitProviderRepo(db: Database) {
+    async function accessSet(organizationId: string, userId: string) {
+      const rows = await db
+        .select({ role: member.role, accessed: member.accessedGitProviders })
+        .from(member)
+        .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)))
+        .limit(1);
+      return rows[0] ?? null;
+    }
+
+    async function accessible(id: string, organizationId: string, userId: string) {
+      const provider = await db.query.gitProviders.findFirst({ where: and(eq(gitProviders.id, id), eq(gitProviders.organizationId, organizationId)) });
+      const membership = await accessSet(organizationId, userId);
+      if (!provider || !membership) return null;
+      if (membership.role === "owner" || membership.role === "admin") return provider;
+      if (provider.userId === userId || provider.sharedWithOrg || (membership.accessed ?? []).includes(provider.id)) return provider;
+      return null;
+    }
+
   return {
     /** Find a git provider by its ID */
     async findById(id: string) {
@@ -43,16 +61,7 @@ export function createGitProviderRepo(db: Database) {
      * Either the user created it, or it is marked as shared with the organization.
      */
     async findAccessible(id: string, organizationId: string, userId: string) {
-      return db.query.gitProviders.findFirst({
-        where: and(
-          eq(gitProviders.id, id),
-          eq(gitProviders.organizationId, organizationId),
-          or(
-            eq(gitProviders.userId, userId),
-            eq(gitProviders.sharedWithOrg, true),
-          ),
-        ),
-      });
+      return accessible(id, organizationId, userId);
     },
 
     /**
@@ -61,16 +70,14 @@ export function createGitProviderRepo(db: Database) {
      * - Accounts shared with the organization by other members.
      */
     async listForUser(organizationId: string, userId: string) {
-      return db.query.gitProviders.findMany({
-        where: and(
-          eq(gitProviders.organizationId, organizationId),
-          or(
-            eq(gitProviders.userId, userId),
-            eq(gitProviders.sharedWithOrg, true),
-          ),
-        ),
-        orderBy: [desc(gitProviders.createdAt)],
-      });
+      const [providers, membership] = await Promise.all([
+        db.query.gitProviders.findMany({ where: eq(gitProviders.organizationId, organizationId), orderBy: [desc(gitProviders.createdAt)] }),
+        accessSet(organizationId, userId),
+      ]);
+      if (!membership) return [];
+      if (membership.role === "owner" || membership.role === "admin") return providers;
+      const assigned = new Set(membership.accessed ?? []);
+      return providers.filter((p) => p.userId === userId || p.sharedWithOrg || assigned.has(p.id));
     },
 
     /** List all providers in an organization (for org owners/admins) */

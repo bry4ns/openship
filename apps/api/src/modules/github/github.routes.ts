@@ -35,7 +35,8 @@ r.post("/instance-token", { tag: "github:admin", localOnly: true }, ctrl.setInst
 /* ─── Git Providers (Dokploy-style Multi-Account) ───────────────────────── */
 r.get("/providers", { tag: "github:read", mcp: { description: "List connected Git Providers in the org." } }, ctrl.getProviders);
 r.patch("/providers/:id/toggle-share", { tag: "github:write" }, ctrl.toggleShareProvider);
-r.delete("/providers/:id", { tag: "github:write" }, ctrl.deleteProvider);
+r.patch("/providers/:id/access", { tag: "github:admin" }, ctrl.setProviderMemberAccess);
+r.delete("/providers/:id", { tag: "github:admin" }, ctrl.deleteProvider);
 
 /* ─── Accounts / Organisations ─────────────────────────────────────────── */
 // /home returns { state, accounts, repos } in one round trip — the
@@ -115,4 +116,3 @@ r.post("/repos/:owner/:repo/webhooks", { tag: "github:write" }, ctrl.registerWeb
 r.delete("/repos/:owner/:repo/webhooks", { tag: "github:admin" }, ctrl.deleteWebhook);
 
 export const githubRoutes = r.hono;
-

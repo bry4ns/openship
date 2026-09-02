@@ -550,6 +550,8 @@ export interface GitHubFetchOptions {
    *  Omitting it on a repo-specific call reopens the owner-wide half of
    *  GHSA-hp2g-hw7g-f3vm, so pass it whenever the URL names a repo. */
   repo?: string;
+  /** Explicit org-scoped Git Provider selected for this operation. */
+  providerId?: string;
   /**
    * Narrow the mint gate's tier to "read". Defaults to the HTTP method: GET →
    * "read", anything else → "write".
@@ -611,7 +613,7 @@ export async function githubFetch<T = unknown>(opts: GitHubFetchOptions): Promis
   const method = opts.method ?? "GET";
 
   // gh-first for local reads.
-  if (method === "GET") {
+  if (method === "GET" && !opts.providerId && !opts.ctx.gitProviderId) {
     const { getLocalGhToken } = await import("./github.local-auth");
     const ghToken = await getLocalGhToken();
     if (ghToken) {
@@ -628,6 +630,7 @@ export async function githubFetch<T = unknown>(opts: GitHubFetchOptions): Promis
   const result = await tokenFor(opts.ctx, "local", {
     owner: opts.owner,
     repo: opts.repo,
+    providerId: opts.providerId ?? opts.ctx.gitProviderId,
     installationId: opts.installationId,
     // A GET is a read; anything else mutates unless the caller declared its tier
     // explicitly. Threading the op means a mutating GitHub call can only mint a
@@ -1320,8 +1323,7 @@ export async function disconnectUser(
     // floor); a failure here must not abort the rest of the disconnect.
     try {
       const { setStoredDeviceToken } = await import("./github.local-auth");
-      // PER-USER FIX: Pass userId to clear the per-user token
-      await setStoredDeviceToken(null, { userId });
+      await setStoredDeviceToken(null);
     } catch (err) {
       console.warn(`[GitHub] clearing stored device token failed: ${(err as Error).message}`);
     }

@@ -68,7 +68,10 @@ function recordPushDelivery(
     .catch(() => {});
 }
 
-export async function handlePush(payload: GitHubPushPayload): Promise<WebhookHandlerResult> {
+export async function handlePush(
+  payload: GitHubPushPayload,
+  verifiedScope?: { projectIds?: string[]; installationId?: number },
+): Promise<WebhookHandlerResult> {
   const owner = payload.repository?.owner?.login;
   const repo = payload.repository?.name;
   const ref = payload.ref;
@@ -98,6 +101,7 @@ export async function handlePush(payload: GitHubPushPayload): Promise<WebhookHan
     commitSha,
     commitMessage: payload.head_commit?.message,
     payload,
+    verifiedProjectIds: verifiedScope?.projectIds,
   });
 }
 
@@ -113,6 +117,8 @@ interface BranchDeploymentTrigger {
   commitMessage?: string;
   /** Raw push payload — needed for smart per-service routing. */
   payload?: GitHubPushPayload;
+  /** Projects whose secret matched the verified repo webhook. */
+  verifiedProjectIds?: string[];
 }
 
 async function deployProjectFromPush(
@@ -275,6 +281,16 @@ async function triggerBranchDeployments(
     (p) => p.autoDeploy && projectWebhookBranch(p, defaultBranch) === input.branch,
   );
 
+  // A repo webhook is only attributable by its signing project secret or hook id.
+  // Never fan out solely from the owner/repo string, which is not tenant-scoped.
+  const scopedProjects = input.verifiedProjectIds?.length
+    ? branchProjects.filter((p) => input.verifiedProjectIds!.includes(p.id))
+    : typeof input.payload?.installation?.id === "number"
+      ? branchProjects.filter((p) => p.installationId === input.payload!.installation!.id)
+      : typeof input.payload?.hook_id === "number"
+        ? branchProjects.filter((p) => p.webhookId === input.payload!.hook_id)
+        : [];
+
   // Tenant binding (multi-tenant safety): a GitHub App push is signed with the
   // single App secret — identical for every org — so the signature proves the
   // push came from GitHub, NOT which tenant it belongs to. findByGitRepo matches
@@ -288,10 +304,7 @@ async function triggerBranchDeployments(
   // carry no installation id (an App-only payload field) and are already scoped
   // by their per-project secret → left unfiltered.
   const deliveredInstallationId = input.payload?.installation?.id ?? null;
-  const autoDeployProjects =
-    deliveredInstallationId != null
-      ? branchProjects.filter((p) => p.installationId === deliveredInstallationId)
-      : branchProjects;
+  const autoDeployProjects = scopedProjects;
   const droppedForInstallation = branchProjects.length - autoDeployProjects.length;
   if (droppedForInstallation > 0) {
     console.warn(

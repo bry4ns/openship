@@ -13,9 +13,33 @@ import type { db as Db } from "../client";
 import { invitation } from "../schema/organization";
 
 export type Invitation = typeof invitation.$inferSelect;
+export type NewInvitation = typeof invitation.$inferInsert;
 
 export function createInvitationRepo(db: typeof Db) {
   return {
+    /** Create a pending invitation without invoking an email transport. */
+    async create(input: NewInvitation): Promise<Invitation> {
+      const [row] = await db.insert(invitation).values(input).returning();
+      if (!row) throw new Error("Failed to create invitation");
+      return row;
+    },
+
+    /** Find an active invitation for an email in an organization. */
+    async findPendingByOrgEmail(organizationId: string, email: string): Promise<Invitation | undefined> {
+      const [row] = await db
+        .select()
+        .from(invitation)
+        .where(
+          and(
+            eq(invitation.organizationId, organizationId),
+            eq(invitation.email, email),
+            eq(invitation.status, "pending"),
+          ),
+        )
+        .limit(1);
+      return row;
+    },
+
     /**
      * Count invitations created by a given inviter since `since`.
      * Used to enforce the per-user invitation rate limit before the

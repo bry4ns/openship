@@ -253,7 +253,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
 
       // 1. If explicit providerId was requested (e.g. from Deploy Wizard), resolve it
       if (c.tokenCtx.providerId) {
-        const p = await repos.gitProvider.findAccessible(
+        const p = await repos.gitProvider?.findAccessible(
           c.tokenCtx.providerId,
           c.organizationId,
           c.userId || "",
@@ -266,7 +266,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
 
       // 2. Otherwise find accessible providers for the user in this org
       if (c.userId) {
-        const list = await repos.gitProvider.listForUser(c.organizationId, c.userId);
+        const list = (await repos.gitProvider?.listForUser(c.organizationId, c.userId)) ?? [];
         // Current user's own token takes precedence
         const own = list.find((p) => p.userId === c.userId);
         if (own?.tokenEncrypted) {
@@ -284,7 +284,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
       if (!c.organizationId) return false;
       const { repos } = await import("@repo/db");
       if (c.tokenCtx.providerId) {
-        const p = await repos.gitProvider.findAccessible(
+        const p = await repos.gitProvider?.findAccessible(
           c.tokenCtx.providerId,
           c.organizationId,
           c.userId || "",
@@ -292,7 +292,7 @@ export const SPECS: Record<GitHubTokenSource, CredentialSpec> = {
         return Boolean(p);
       }
       if (c.userId) {
-        const list = await repos.gitProvider.listForUser(c.organizationId, c.userId);
+        const list = (await repos.gitProvider?.listForUser(c.organizationId, c.userId)) ?? [];
         return list.length > 0;
       }
       return false;
@@ -601,9 +601,8 @@ async function isCliOperatorAllowed(userId: string): Promise<boolean> {
  *     worker is a real security hole (HIGH #7).
  *   - no org context (zero-auth desktop / internal jobs) → YES. The
  *     auto-provisioned local user IS the operator.
- *   - org context → NEVER for non-operators. The operator's token must
- *     not leak to other users sharing this VPS. Each user should have
- *     their own GitHub credential (device flow or OAuth).
+ *   - org context → only if the operator opted in (`isCliOperatorAllowed`),
+ *     so a non-operator member can't borrow the operator's token.
  *
  * NOTE: this gate is for CLONE/BUILD token resolution only. Plain repo/org
  * LISTING is a local read and uses the gh token DIRECTLY via the
@@ -617,9 +616,7 @@ export async function mayUseOperatorCliToken(
 ): Promise<boolean> {
   if (purpose === "remote") return false;
   if (!organizationId) return true;
-  // PER-USER FIX: Never lend the operator's shared CLI token to org members.
-  // Each user should connect their own GitHub via device flow or OAuth.
-  return false;
+  return isCliOperatorAllowed(userId);
 }
 
 /**

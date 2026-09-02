@@ -63,5 +63,19 @@ export function createMemberRepo(db: typeof Db) {
     async isMember(organizationId: string, userId: string): Promise<boolean> {
       return !!(await this.find(organizationId, userId));
     },
+
+    async setGitProviderAccess(organizationId: string, userId: string, providerId: string, granted: boolean) {
+      const current = await this.find(organizationId, userId);
+      if (!current) return null;
+      const ids = new Set(current.accessedGitProviders ?? []);
+      if (granted) ids.add(providerId);
+      else ids.delete(providerId);
+      const rows = await db
+        .update(member)
+        .set({ accessedGitProviders: [...ids] })
+        .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)))
+        .returning();
+      return rows[0] ?? null;
+    },
   };
 }

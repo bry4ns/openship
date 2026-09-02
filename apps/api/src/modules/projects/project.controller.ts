@@ -1519,11 +1519,12 @@ export async function linkRepo(c: Context) {
   // linkProjectRepo's assertResourceInOrg throw 404 and mis-attributes the audit
   // record to the session org (see setSleepMode).
   const ctx = getRequestContext(c);
-  const { owner, repo, branch, installationId } = await c.req.json<{
+  const { owner, repo, branch, installationId, providerId } = await c.req.json<{
     owner: string;
     repo: string;
     branch?: string;
     installationId?: number;
+    providerId?: string;
   }>();
 
   const result = await projectService.linkProjectRepo(ctx, id, {
@@ -1531,6 +1532,7 @@ export async function linkRepo(c: Context) {
     repo,
     branch,
     installationId,
+    providerId,
   });
 
   if (!result.ok) {

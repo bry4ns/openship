@@ -25,6 +25,7 @@ export async function createGitHubSource(
   ctx: RequestContext,
   providerId?: string,
 ): Promise<GitHubSource> {
+  providerId = providerId ?? ctx.gitProviderId;
   // SaaS: the App service only. Zero gh, no merge, no cloud mode-probe.
   if (env.CLOUD_MODE) {
     const { GitHubAppSource } = await import("./app-source");

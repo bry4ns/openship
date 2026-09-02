@@ -38,6 +38,7 @@ import type { RequestContext } from "../../../lib/request-context";
 import type {
   GitHubConnectionState,
   GitHubInstallation,
+  MappedAccount,
   MappedRepository,
 } from "../github.types";
 import type { GhCliSource, GhCliStatus } from "./gh-cli-source";

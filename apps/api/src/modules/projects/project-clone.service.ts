@@ -171,8 +171,9 @@ export async function cloneProjectToServer(input: {
       name: desiredName,
       slug,
       // Git identity follows the project: a duplicate of a repo-backed project is still backed
-      // by that repo, and its later redeploys should build from it.
-      gitProvider: source.gitProvider ?? undefined,
+       // by that repo, and its later redeploys should build from it.
+       gitProviderId: source.gitProviderId ?? undefined,
+       gitProvider: source.gitProvider ?? undefined,
       gitOwner: source.gitOwner ?? undefined,
       gitRepo: source.gitRepo ?? undefined,
       gitUrl: source.gitUrl ?? undefined,

@@ -298,7 +298,7 @@ export function GitHubConnection() {
 
   return (
     <>
-    <SettingsSection
+    {false && <SettingsSection
       icon={Github}
       title={t.settings.github.title}
       description={
@@ -321,7 +321,7 @@ export function GitHubConnection() {
       ) : !anyConnected && cliAction ? (
         /* A login is in flight. It's the only actionable thing on the card, so it
            replaces the chooser entirely instead of appearing underneath it. */
-        <DeviceFlowPanel cliAction={cliAction} onRefresh={() => void loadStatus(true)} isDesktop={isDesktop} />
+          <DeviceFlowPanel cliAction={cliAction!} onRefresh={() => void loadStatus(true)} isDesktop={isDesktop} />
       ) : anyConnected ? (
         <div className="space-y-4">
           {/* The identity that is actually authorizing clones, first. */}
@@ -378,7 +378,7 @@ export function GitHubConnection() {
               <div className="flex flex-wrap items-center gap-2">
                 {installUrl && (
                   <a
-                    href={installUrl}
+                    href={installUrl ?? undefined}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => {
@@ -478,6 +478,12 @@ export function GitHubConnection() {
             )}
           </div>
         </div>
+      ) : cliAction ? (
+        <DeviceFlowPanel
+          cliAction={cliAction!}
+          onRefresh={() => void loadStatus(true)}
+          isDesktop={isDesktop}
+        />
       ) : (
         /* Nothing connected. Signing in with GitHub is the default because it
            needs no app registration, no Openship account and no shell on the box;
@@ -488,7 +494,7 @@ export function GitHubConnection() {
         <div className="space-y-4">
           {ghProblem && (
             <CredentialProblem
-              problem={ghProblem}
+              problem={ghProblem!}
               methodLabel={ghMethodLabel}
               checkedAt={state.sources.ghCli.checkedAt}
               manageUrl={ghManageUrl}
@@ -514,17 +520,23 @@ export function GitHubConnection() {
           />
         </div>
       )}
-    </SettingsSection>
+    </SettingsSection>}
 
-    {/* Dokploy-style Multi-Account Git Providers */}
+    {/* Organization-scoped GitHub accounts */}
     <SettingsSection
       icon={Users}
-      title="Git Providers (Dokploy Mode)"
-      description="Manage connected GitHub accounts for this organization. Team members can share credentials to deploy services together."
+      title="GitHub accounts"
+      description="Connect one personal GitHub account per member, then share selected accounts with this organization."
       iconBg="bg-foreground/5"
       iconColor="text-foreground"
     >
-      {providersLoading ? (
+      {cliAction ? (
+        <DeviceFlowPanel
+          cliAction={cliAction!}
+          onRefresh={() => void loadStatus(true)}
+          isDesktop={isDesktop}
+        />
+      ) : providersLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
           <Loader2 className="size-4 animate-spin" />
           Loading Git accounts...
@@ -534,14 +546,14 @@ export function GitHubConnection() {
           {providers.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border/60 p-4 text-center">
               <p className="text-sm text-muted-foreground">
-                No GitHub accounts linked to this organization yet.
+                No GitHub accounts connected to this organization yet.
               </p>
               <button
                 onClick={() => connect("cli")}
                 className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
               >
                 <Plus className="size-3.5" />
-                Connect GitHub Account
+                Connect my GitHub account
               </button>
             </div>
           ) : (
@@ -598,12 +610,12 @@ export function GitHubConnection() {
                         }`}
                       >
                         <Share2 className="size-3" />
-                        {p.sharedWithOrg ? "Shared with Org" : "Private to You"}
+                        {p.sharedWithOrg ? "Shared with organization" : "Private to me"}
                       </button>
                     ) : (
                       <span className="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
                         <Share2 className="size-3" />
-                        Shared with Team
+                        Shared with organization
                       </span>
                     )}
 
@@ -621,15 +633,6 @@ export function GitHubConnection() {
                 </div>
               ))}
 
-              <div className="pt-2 flex justify-end">
-                <button
-                  onClick={() => connect("cli")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-                >
-                  <Plus className="size-3.5" />
-                  Add Another GitHub Account
-                </button>
-              </div>
             </div>
           )}
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import type { AttentionFeed } from "@/hooks/useAttentionFeed";
-import { IssuesCard, UpdatesCard } from "./AttentionCards";
+import { IssuesCard } from "./AttentionCards";
 import HomeTipCard from "./HomeTipCard";
 
 interface UpdatesBlockProps {
@@ -12,9 +12,8 @@ interface UpdatesBlockProps {
 }
 
 /**
- * Home attention slot — the alert-driven replacement for the static quick-tip in the
- * right column. What's broken ranks above what's merely behind; with neither, the slot
- * falls back to the product tip rather than going empty.
+ * Home attention slot — broken infrastructure is shown here; routine update notices
+ * remain available from Settings → Updates without taking over the home page.
  *
  * The rows come from `/issues` — the same feed the tracker page serves — read once by
  * the home page and passed in, because the page also needs the card count to decide
@@ -25,12 +24,11 @@ interface UpdatesBlockProps {
  * read, one definition, and every source the feed grows reaches the home page free.
  */
 export default function UpdatesBlock({ feed, projectCount, loading }: UpdatesBlockProps) {
-  const { broken, behind, busyId, resolve, infraFix, hide } = feed;
+  const { broken, busyId, resolve, infraFix, hide } = feed;
 
-  // Nothing wrong and nothing to update → the product tip (also the still-loading
-  // state, where the feed is empty for a beat, and the state where both cards have
-  // been hidden — the slot shows the tip rather than a gap).
-  if (feed.cards === 0) {
+  // Do not surface update notices as an alert on the home page. If there is no
+  // broken infrastructure, keep the slot as the regular product tip.
+  if (!feed.showBroken || broken.length === 0) {
     return <HomeTipCard projectCount={projectCount} loading={loading} />;
   }
 
@@ -43,15 +41,6 @@ export default function UpdatesBlock({ feed, projectCount, loading }: UpdatesBlo
           onResolve={resolve}
           onInfraFix={infraFix}
           onHide={() => hide("broken")}
-        />
-      )}
-      {feed.showBehind && (
-        <UpdatesCard
-          issues={behind}
-          busyId={busyId}
-          onResolve={resolve}
-          onInfraFix={infraFix}
-          onHide={() => hide("behind")}
         />
       )}
     </div>

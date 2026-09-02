@@ -60,6 +60,7 @@ export type PrepareProjectSource =
       source?: "github";
       owner: string;
       repo: string;
+      providerId?: string;
       branch?: string;
       force?: string | boolean;
       /** Pin the compose file location (file or directory) instead of detecting the root. */

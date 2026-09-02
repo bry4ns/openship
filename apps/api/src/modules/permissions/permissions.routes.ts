@@ -15,7 +15,7 @@
  *     PUT    /grants                           replace a member's whole grant set
  *     DELETE /grants/:id                      revoke a grant
  *     GET    /invitations                     list pending invitations + their grants
- *     POST   /invite-with-grants              invite + attach pending grants in one call
+ *     POST   /invite-with-grants              invite by email or create a copyable link
  */
 
 import { Hono } from "hono";

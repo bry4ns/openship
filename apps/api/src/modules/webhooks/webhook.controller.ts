@@ -59,7 +59,7 @@ async function dispatchProvider(c: Context, providerName: WebhookProviderName) {
   }
 
   try {
-    const result = await provider.handle(payload, headers);
+    const result = await provider.handle(payload, headers, verification.scope);
     // Always return 200 for verified webhooks - returning 4xx/5xx causes
     // GitHub to retry, which can trigger duplicate deployments on transient errors.
     return c.json(result, 200);
