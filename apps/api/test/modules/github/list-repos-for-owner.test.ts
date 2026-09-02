@@ -79,6 +79,7 @@ beforeEach(() => {
   getUserStatus.mockReset();
   getUserInstallations.mockReset();
   getInstallationToken.mockReset();
+  getInstallationToken.mockResolvedValue(null);
   ghFetch.mockReset();
   githubFetch.mockReset();
   getLocalGhToken.mockReset();
